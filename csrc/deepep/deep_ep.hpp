@@ -24,6 +24,7 @@ struct Buffer {
 
     int32_t round;
     int32_t per_round_tokens;
+    bool combine_enable_long_seq = false;  // Whether to enable the Combine Ant Migration feature
 
     bool low_latency_mode = false;
     bool is_padding = false;
@@ -33,8 +34,10 @@ struct Buffer {
     at::Tensor new_scales;
     at::Tensor notify_send_data;  // only for internode notify
     at::Tensor send_token_idx_small;
+    at::Tensor token_idx_map;
     int notify_send_data_size;  // only for internode notify
 
+    int32_t valid_bs = 0;
     int64_t shared_expert_rank_num;
     int64_t shared_expert_num = 1;
     int64_t real_max_bs;
