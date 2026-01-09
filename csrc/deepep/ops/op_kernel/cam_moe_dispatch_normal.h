@@ -107,6 +107,7 @@ private:
     GlobalTensor<int32_t> expertGlobalOffsetGT;
     GlobalTensor<int32_t> srcrankInExpertOffsetGT;
     GlobalTensor<int32_t> rInSrcrankOffsetGT;
+    GlobalTensor<int32_t> tokenIdxMapOffsetGT;
     GlobalTensor<float> dynamicScalesOutGT;
     GlobalTensor<int32_t> expandIdxOutGT;
     GlobalTensor<ExpandXOutType> dstGT;
@@ -128,6 +129,7 @@ private:
     LocalTensor<int32_t> expertGlobalOffsetTensor;
     LocalTensor<int32_t> srcrankInExpertOffsetTensor;
     LocalTensor<int32_t> rInSrcrankOffsetTensor;
+    LocalTensor<int32_t> tokenIdxMapOffsetTensor;
 
     TBuf<> expertIdsBuf;
     TBuf<> sendOffsetBuf;
@@ -146,6 +148,7 @@ private:
     TBuf<> expertGlobalOffsetBuf;
     TBuf<> srcrankInExpertOffsetBuf;
     TBuf<> rInSrcrankOffsetBuf;
+    TBuf<> tokenIdxMapOffsetBuf;
 
     GM_ADDR expandXOutGM;
     GM_ADDR shareGM;
@@ -170,6 +173,7 @@ private:
     uint32_t hUBAlignSize{0};
     uint32_t hOutGMAlignSize{0};
     uint32_t hOutUBAlignSize{0};
+    uint32_t tokenIdxMapUBAlignSize{0};
     uint32_t hGMAlignCnt{0};
     uint32_t expandIdxStartIdx{0};
     uint32_t expertIdsCnt{0};
@@ -199,8 +203,9 @@ private:
 template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
     GM_ADDR x, GM_ADDR expertIds, GM_ADDR send_offset, GM_ADDR send_tokenIdx, GM_ADDR recv_offset, GM_ADDR recv_count,
-    GM_ADDR expert_global_offset, GM_ADDR srcrank_in_expert_offset, GM_ADDR r_in_srcrank_offset, GM_ADDR expandXOut,
-    GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut, GM_ADDR waitRecvCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
+    GM_ADDR expert_global_offset, GM_ADDR srcrank_in_expert_offset, GM_ADDR r_in_srcrank_offset, GM_ADDR token_idx_map, 
+    GM_ADDR expandXOut, GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut, GM_ADDR waitRecvCostStatsOut, 
+    GM_ADDR workspaceGM, TPipe *pipe,
     const CamMoeDispatchNormalTilingData *tilingData)
 {
     tpipe_ = pipe;
@@ -237,6 +242,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
     expertGlobalOffsetGT.SetGlobalBuffer((__gm__ int32_t *)(expert_global_offset));
     srcrankInExpertOffsetGT.SetGlobalBuffer((__gm__ int32_t *)(srcrank_in_expert_offset));
     rInSrcrankOffsetGT.SetGlobalBuffer((__gm__ int32_t *)(r_in_srcrank_offset));
+    tokenIdxMapOffsetGT.SetGlobalBuffer((__gm__ int32_t *)(token_idx_map));
     dynamicScalesOutGT.SetGlobalBuffer((__gm__ float *)dynamicScalesOut);
     expandIdxOutGT.SetGlobalBuffer((__gm__ int32_t *)(expandIdxOut));
     if (isEnableDiagnose) {
@@ -421,20 +427,29 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::InputToShare()
     }
     tpipe_->InitBuffer(expertIdsBuf, sendTokenNum * sizeof(int32_t));     // 4 * bs * k / 48
     tpipe_->InitBuffer(sendTokenIdxBuf, sendTokenNum * sizeof(int32_t));  // 4 * bs * k / 48
+    tpipe_->InitBuffer(tokenIdxMapOffsetBuf, sendTokenNum * sizeof(int32_t));
     expertIdsTensor = expertIdsBuf.Get<int32_t>();
     sendTokenIdxTensor = sendTokenIdxBuf.Get<int32_t>();
+    tokenIdxMapOffsetTensor = tokenIdxMapOffsetBuf.Get<int32_t>();
     DataCopyExtParams expertIdsCntParams = {1U, static_cast<uint32_t>(sendTokenNum * sizeof(uint32_t)), 0U, 0U, 0U};
     DataCopyExtParams sendTokenIdxParams = {1U, static_cast<uint32_t>(sendTokenNum * sizeof(uint32_t)), 0U, 0U, 0U};
+    DataCopyExtParams tokenIdxMapOffsetParams = {1U, static_cast<uint32_t>(sendTokenNum * sizeof(uint32_t)), 0U, 0U, 0U};
     DataCopyPadExtParams<int32_t> copyPadExtParams{false, 0U, 0U, 0U};
     DataCopyPadExtParams<XType> tokenCopyPadExtParams{false, 0U, 0U, 0U};
+    DataCopyPadExtParams<int32_t> tokenIdxMapPadExtParams{false, 0U, 0U, 0U};
     DataCopyPad(expertIdsTensor, expertIdsGT[roundIndex * perRoundTokens * topK + startTokenId], expertIdsCntParams,
                 copyPadExtParams);
     DataCopyPad(sendTokenIdxTensor, sendTokenIdxGT[roundIndex * perRoundTokens * topK + startTokenId],
                 sendTokenIdxParams, copyPadExtParams);
+    DataCopyPad(tokenIdxMapOffsetTensor, tokenIdxMapOffsetGT[roundIndex * perRoundTokens * topK + startTokenId], 
+                tokenIdxMapOffsetParams, tokenIdxMapPadExtParams);
     SyncFunc<AscendC::HardEvent::MTE2_S>();
 
     DataCopyExtParams xCopyParams = {1U, static_cast<uint32_t>(h * sizeof(XType)), 0U, 0U, 0U};
     for (int32_t tokenIndex = startTokenId; tokenIndex < endTokenId; ++tokenIndex) {
+        if (expertIdsTensor(tokenIndex - startTokenId) == -1) {
+            continue;
+        }
         uint32_t dstExpertId = expertIdsTensor(tokenIndex - startTokenId);
         int32_t curExpertCnt = sendTokenIdxTensor(tokenIndex - startTokenId);
         int32_t dstExpertOffset = sendOffsetTensor(dstExpertId);
