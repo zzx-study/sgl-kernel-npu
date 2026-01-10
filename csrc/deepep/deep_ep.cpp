@@ -344,7 +344,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         recv_topk_weights = at::empty({trt, num_topk}, topk_weights->options());
     }
     EXEC_NPU_CMD(aclnnCamMoeDispatchNormal, new_x, expert_ids, send_data_offset, send_token_idx_small, recv_offset,
-                 recv_count, expert_global_offset, srcrank_in_expert_offset, token_idx_map, r_in_srcrank_offset, hcom_ep_name,
+                 recv_count, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, token_idx_map, hcom_ep_name,
                  num_ranks,  // rankSize
                  rank,       // rankId
                  hcom_ep_name, tp_size, tp_rank, num_experts, quant_mode, real_max_bs, global_bs, round,
