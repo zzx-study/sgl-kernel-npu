@@ -180,7 +180,7 @@ std::tuple<torch::Tensor, int> Buffer::get_topk_neg_one_data()
     return std::make_tuple(this->token_idx_map, this->valid_bs);
 }
 
-void set_topk_neg_one_data(torch::Tensor tokenIdxMap, int intvalidBs) 
+void Buffer::set_topk_neg_one_data(torch::Tensor tokenIdxMap, int intvalidBs) 
 {
     token_idx_map = tokenIdxMap.clone();
     valid_bs = intvalidBs;
