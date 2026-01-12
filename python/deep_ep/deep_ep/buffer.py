@@ -220,6 +220,14 @@ class Buffer:
         (token_idx_map, valid_bs) = self.runtime.get_topk_neg_one_data()
         return (token_idx_map, valid_bs)
 
+    def set_topk_neg_one_data(self, token_idx_map:torch.Tensor, valid_bs:int ):
+        """
+        Internal interface, we only use it to set the  token_idx_map valid_bs for dispatch/combine input.
+
+        """
+        self.runtime.set_topk_neg_one_data(token_idx_map, valid_bs)
+        return
+
     def clean_low_latency_buffer(
         self, num_max_dispatch_tokens_per_rank: int, hidden: int, num_experts: int
     ) -> None:
