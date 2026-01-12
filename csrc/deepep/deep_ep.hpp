@@ -71,6 +71,8 @@ public:
 
     std::tuple<torch::Tensor, int> get_topk_neg_one_data();
 
+    void set_topk_neg_one_data(std::tuple<torch::Tensor, int>);
+
     std::tuple<at::Tensor, std::optional<at::Tensor>, std::optional<at::Tensor>, std::optional<at::Tensor>,
                std::vector<int>, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, std::optional<EventHandle>>
     intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> &x_scales,

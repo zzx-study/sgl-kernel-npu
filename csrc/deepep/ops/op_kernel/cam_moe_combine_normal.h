@@ -438,7 +438,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::ReadBufferFromR
     const DataCopyPadExtParams<int32_t> copyPadIntParams{false, 0U, 0U, 0U};
     DataCopyPad(topkWeightsLocal, topkWeightsGM_[startTokenIndex * axisK_], bskParams, copyPadFloatParams);
     DataCopyPad(tokenIdxMapLocal, tokenIdxMapGM_[startTokenIndex], tokenIdxMapParams, copyPadIntParams);
-    DataCopyPad(tokenIdxLocal, tokenIdxGM_[startTokenIndex], tokenIdxParams, copyPadIntParams);
+    DataCopyPad(tokenIdxLocal, tokenIdxGM_[startTokenIndex * axisK_], tokenIdxParams, copyPadIntParams);
     SyncFunc<AscendC::HardEvent::MTE2_S>();
 
     for (uint32_t tokenIndex = startTokenIndex; tokenIndex < endTokenIndex; tokenIndex++) {
