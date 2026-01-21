@@ -1,62 +1,123 @@
 #!/bin/bash
 
-# ==================== 配置区 ====================
-TEST_CMD="bash run_test_internode.sh"    # ← 替换为你的实际测试命令
-ROUNDS=5                     # 测试轮数
-LOG_FILE="perf_output.log"   # 临时日志文件
+# ==================== ??? ====================
+TEST_CMD="bash run_test_internode.sh"
+ROUNDS=20
+LOG_FILE="perf_output.log"
 # ===============================================
 
-# 清理旧日志
-rm "$LOG_FILE"
+rm -f "$LOG_FILE"
 
-echo "������ 开始  $ROUNDS 轮性能测试..."
-echo "命令:  $TEST_CMD"
+echo "?? ?? $ROUNDS ?????..."
+echo "??: $TEST_CMD"
 echo "----------------------------------------"
 
-# 运行多轮测试，追加输出到日志
 for ((i=1; i<=ROUNDS; i++)); do
-    echo ">>> Round  $i <<<" >> "$LOG_FILE"
-    echo -n "第  $i 轮... "
-    
-    # 执行命令，同时输出到终端和日志（可选）
+    echo ">>> Round $i <<<" >> "$LOG_FILE"
+    echo -n "? $i ?... "
+
     if output=$($TEST_CMD 2>&1); then
-        echo "✅ 成功"
-        echo " $output" >> "$LOG_FILE"
+        echo "? ??"
+        echo "$output" >> "$LOG_FILE"
     else
-        echo "❌ 失败 (exit code:  $?)"
-        echo "[ERROR] Round  $i failed" >> "$LOG_FILE"
+        echo "? ??"
+        echo "[ERROR] Round $i failed" >> "$LOG_FILE"
+	echo "$output" > error.log
     fi
 done
 
 echo ""
-echo "������ 正在解析日志并计算统计量..."
+echo "?? ????????????..."
 
-dispatch=()
-combine=()
-kernel=()
+# ==================== awk ?? ====================
+awk '
+# ---------------- Dispatch ----------------
+/\[tuning\].*Dispatch/ {
+    if (match($0, /[0-9.]+ GB\/s \(HCCS\)/)) {
+        val = substr($0, RSTART, RLENGTH)
+        sub(/ GB\/s \(HCCS\)/, "", val)
+        d_hccs_sum += val; d_hccs_cnt++
+    }
 
-while IFS= read -r line; do
-    if [[ "$line" =~ \[tuning\].*Dispatch.*avg_t:\ ([0-9.]+)\ us ]]; then
-        dispatch+=("${BASH_REMATCH[1]}")
-    elif [[ "$line" =~ \[tuning\].*Combine.*avg_t:\ ([0-9.]+)\ us ]]; then
-        combine+=("${BASH_REMATCH[1]}")
-    elif [[ "$line" =~ \[layout\].*Kernel\ performance:\ ([0-9.]+)\ ms ]]; then
-        us=$(awk "BEGIN{print ${BASH_REMATCH[1]} * 1000}")
-        kernel+=("$us")
-    fi
-done < "$LOG_FILE"
+    if (match($0, /[0-9.]+ GB\/s \(RDMA\)/)) {
+        val = substr($0, RSTART, RLENGTH)
+        sub(/ GB\/s \(RDMA\)/, "", val)
+        d_rdma_sum += val; d_rdma_cnt++
+    }
 
-avg() {
-    local sum=0
-    for v in "$@"; do
-        sum=$(awk "BEGIN{print $sum + $v}")
-    done
-    awk "BEGIN{print $sum / $#}"
+    if (match($0, /avg_t: [0-9.]+ us/)) {
+        val = substr($0, RSTART, RLENGTH)
+        sub(/avg_t: /, "", val)
+        sub(/ us/, "", val)
+        d_time_sum += val; d_time_cnt++
+    }
 }
 
-echo "Dispatch avg_t: $(avg "${dispatch[@]}") us"
-echo "Combine  avg_t: $(avg "${combine[@]}") us"
-echo "Kernel time : $(avg "${kernel[@]}") us"
-# 可选：保留日志供复查
+# ---------------- Combine ----------------
+/\[tuning\].*Combine/ {
+    if (match($0, /[0-9.]+ GB\/s \(HCCS\)/)) {
+        val = substr($0, RSTART, RLENGTH)
+        sub(/ GB\/s \(HCCS\)/, "", val)
+        c_hccs_sum += val; c_hccs_cnt++
+    }
+
+    if (match($0, /[0-9.]+ GB\/s \(RDMA\)/)) {
+        val = substr($0, RSTART, RLENGTH)
+        sub(/ GB\/s \(RDMA\)/, "", val)
+        c_rdma_sum += val; c_rdma_cnt++
+    }
+
+    if (match($0, /avg_t: [0-9.]+ us/)) {
+        val = substr($0, RSTART, RLENGTH)
+        sub(/avg_t: /, "", val)
+        sub(/ us/, "", val)
+        c_time_sum += val; c_time_cnt++
+    }
+}
+
+# ---------------- Kernel ----------------
+/\[layout\].*Kernel performance:/ {
+    if (match($0, /Kernel performance: [0-9.]+ ms/)) {
+        val = substr($0, RSTART, RLENGTH)
+        sub(/Kernel performance: /, "", val)
+        sub(/ ms/, "", val)
+        k_sum += val * 1000
+        k_cnt++
+    }
+}
+
+END {
+    print ""
+    print "?? ?????? (???)"
+    print "----------------------------------------"
+
+    if (d_time_cnt) {
+        printf "Dispatch avg_t    : %.2f us (n=%d)\n", d_time_sum/d_time_cnt, d_time_cnt
+        printf "Dispatch HCCS BW  : %.2f GB/s\n", d_hccs_sum/d_hccs_cnt
+        printf "Dispatch RDMA BW  : %.2f GB/s\n", d_rdma_sum/d_rdma_cnt
+    } else {
+        print "Dispatch: ? ???"
+    }
+
+    print ""
+
+    if (c_time_cnt) {
+        printf "Combine  avg_t    : %.2f us (n=%d)\n", c_time_sum/c_time_cnt, c_time_cnt
+        printf "Combine  HCCS BW  : %.2f GB/s\n", c_hccs_sum/c_hccs_cnt
+        printf "Combine  RDMA BW  : %.2f GB/s\n", c_rdma_sum/c_rdma_cnt
+    } else {
+        print "Combine: ? ???"
+    }
+
+    print ""
+
+    if (k_cnt) {
+        printf "Kernel time avg   : %.2f us (n=%d)\n", k_sum/k_cnt, k_cnt
+    } else {
+        print "Kernel: ? ???"
+    }
+}
+' "$LOG_FILE"
+
 echo ""
-echo "������ 详细日志已保存至:  $LOG_FILE"
+echo "?? ????????: $LOG_FILE"
