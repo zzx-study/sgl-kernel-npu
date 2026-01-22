@@ -72,6 +72,7 @@ extern "C" __global__ __aicore__ void dispatch_normal_a2(
         // NotifyDispatchA2<int> opKernel(rank, rankSize, extraFlag);
         // opKernel.Init(KERNELS_ARGS_CALL_A2_ALL2ALL());
         // opKernel.Process();
+        printf("========2100001000========\n");
         CamMoeDistributeDispatchA2Layered<bfloat16_t, bfloat16_t, false, false, false> op;
         op.Init(x, expertIds, scales, expertScales, tokenServerIdx, tokenServerCnt, epRankTokenCnt,
                 srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, recvX, dynamicScalesOut, expandIdxOut, expertTokenNumsOut,
@@ -81,6 +82,7 @@ extern "C" __global__ __aicore__ void dispatch_normal_a2(
         // NotifyDispatchA2<int> opKernel(rank, rankSize, extraFlag);
         // opKernel.Init(KERNELS_ARGS_CALL_A2_ALL2ALL());
         // opKernel.Process();
+        printf("========2000000000========\n");
         CamMoeDistributeDispatchA2Layered<bfloat16_t, bfloat16_t, false, false, false> op;
         op.Init(x, expertIds, scales, expertScales, tokenServerIdx, tokenServerCnt, epRankTokenCnt,
                 srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, recvX, dynamicScalesOut, expandIdxOut, expertTokenNumsOut,
@@ -90,6 +92,7 @@ extern "C" __global__ __aicore__ void dispatch_normal_a2(
         // NotifyDispatchA2<int> opKernel(rank, rankSize, extraFlag);
         // opKernel.Init(KERNELS_ARGS_CALL_A2_ALL2ALL());
         // opKernel.Process();
+        printf("========2000001000========\n");
         CamMoeDistributeDispatchA2Layered<bfloat16_t, bfloat16_t, false, false, false> op;
         op.Init(x, expertIds, scales, expertScales, tokenServerIdx, tokenServerCnt, epRankTokenCnt,
                 srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, recvX, dynamicScalesOut, expandIdxOut, expertTokenNumsOut,

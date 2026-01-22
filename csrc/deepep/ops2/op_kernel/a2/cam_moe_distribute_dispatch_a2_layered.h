@@ -213,6 +213,7 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
     GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut, GM_ADDR expertTokenNumsOut, GM_ADDR epRecvCountsOut,
     GM_ADDR expandScales, GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tilingGM)
 {
+    printflag("Init");
     tpipe_ = pipe;
     REGISTER_TILING_DEFAULT(CamMoeDistributeDispatchA2TilingData);
     auto tiling = (__gm__ CamMoeDistributeDispatchA2TilingData *)tilingGM;

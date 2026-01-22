@@ -59,9 +59,9 @@ extern "C" __global__ __aicore__ void notify_dispatch_a2(GM_ADDR sendData, GM_AD
     int64_t scaleCount = 0;
     GM_ADDR offset = nullptr;
     int blockNum = GetBlockNum();
-    printf("============================finish tilling======================");
 
     if (TILING_KEY_IS(TILING_KEY_A2_INT)) {
+        printf("===========third\n");
         NotifyDispatchA2<int> opKernel(rank, rankSize, extraFlag);
         opKernel.Init(KERNELS_ARGS_CALL_A2_ALL2ALL());
         opKernel.Process();
