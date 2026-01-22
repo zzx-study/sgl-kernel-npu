@@ -13,6 +13,18 @@ namespace MoeDistributeCombineA2Impl {
 #define TemplateMC2TypeA2layeredFunc ExpandXType, ExpandIdxType
 using namespace AscendC;
 template <TemplateMC2TypeA2layeredClass>
+#ifdef ENABLE_PRINT
+#define CAM_PRINT(fmt, ...)                  \
+    do {                                     \
+        AscendC::printf(fmt, ##__VA_ARGS__); \
+    } while (0)
+#else
+#define CAM_PRINT(fmt, ...)
+#endif
+#define printflag(ss)                                                      \
+    if (coreIdx_ < aivNum_) {                                       \
+        CAM_PRINT("========rank:%d coreIdx:%d " #ss "\n", coreIdx_, aivId_); \
+    }
 class MoeDistributeCombineA2Layered
 {
 public:
@@ -749,13 +761,21 @@ __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFun
 {
     if ASCEND_IS_AIV {
         AlltoAllDispatch();        // 所有核执行
+        printflag("AlltoAllDispatch");
         SumToWindow();             // 前serverNum个核执行
+        printflag("SumToWindow");
         AlltoAllServerDispatch();  // 前serverNum个核执行
+        printflag("AlltoAllServerDispatch");
         SetStatus();               // 0核执行
+        printflag("SetStatus");
         Preload();                 // 前8核执行
+        printflag("Preload");
         WaitDispatch();            // 前serverNum个核执行
+        printflag("WaitDispatch");
         SumToServer();             // 前8核执行
+        printflag("SumToServer");
         hccl_.Finalize();
+        printflag("printflag");
     }
 }
 

@@ -784,6 +784,7 @@ Buffer::internode_dispatch(
         HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
     }
 
+    printf("=================aclnnNotifyDispatchA2");
     EXEC_NPU_CMD(aclnnNotifyDispatchA2, new_send_data, new_num_tokens_per_expert, tmp_data, send_count, num_tokens,
                  num_topk, num_experts,
                  hcom_ep_name,  // commGroup
@@ -807,6 +808,7 @@ Buffer::internode_dispatch(
         recv_topk_weights = at::empty({total_count, num_topk}, topk_weights->options());
     }
 
+    printf("===========================================aclnnDispatchNormalA2");
     EXEC_NPU_CMD(aclnnDispatchNormalA2, new_x, expert_ids, x_scales, xActiveMask, new_topk_weights, token_server_idx,
                  token_unique_per_server, ep_rank_token_cnt, src_offset_rank_token_idx, dst_offset_rank_token_idx,
                  hcom_ep_name, num_ranks, rank, num_experts, hcom_ep_name, tp_size, tp_rank, expertShardType,

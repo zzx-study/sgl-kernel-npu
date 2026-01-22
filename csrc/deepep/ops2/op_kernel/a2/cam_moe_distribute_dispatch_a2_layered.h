@@ -41,6 +41,18 @@ constexpr uint32_t BS_UPPER = 4096;
 #define TemplateMC2TypeA2layeredClass \
     typename XType, typename ExpandXOutType, bool StaticQuant, bool DynamicQuant, bool IsSmoothScaleExist
 #define TemplateMC2TypeA2layeredFunc XType, ExpandXOutType, StaticQuant, DynamicQuant, IsSmoothScaleExist
+#ifdef ENABLE_PRINT
+#define CAM_PRINT(fmt, ...)                  \
+    do {                                     \
+        AscendC::printf(fmt, ##__VA_ARGS__); \
+    } while (0)
+#else
+#define CAM_PRINT(fmt, ...)
+#endif
+#define printflag(ss)                                                      \
+    if (aivId_ < aivNum_) {                                       \
+        CAM_PRINT("========rank:%d coreIdx:%d " #ss "\n", rankId_, aivId_); \
+    }
 
 using namespace AscendC;
 using namespace Cam;
@@ -845,19 +857,26 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
 {
     if ASCEND_IS_AIV {  // 全aiv处理
         Input2Win();
+        printflag("finish Input2Win");
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
         WriteRdmaCntInfo();
+        printflag("finish WriteRdmaCntInfo");
         DispatchBetweenServer();
+        printflag("finish DispatchBetweenServer");
         WaitWindow();
+        printflag("finish WaitWindow");
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
 
         SetIpcFlag(IPC_FLAG_STEP_1);
+        printflag("finish SetIpcFlag");
         WaitIpcFlag(IPC_FLAG_STEP_1);
+        printflag("finish WaitIpcFlag");
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
         Ipc2Out();
+        printflag("finish Ipc2Out");
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
 
@@ -866,11 +885,14 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
         }
         PipeBarrier<PIPE_ALL>();
         SetIpcFlag(IPC_FLAG_STEP_2);
+        printflag("finish SetIpcFlag");
         WaitIpcFlag(IPC_FLAG_STEP_2);
+        printflag("finish WaitIpcFlag");
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
 
         hccl_.Finalize();
+        printflag("finish dispatch");
     }
 }
 }  // namespace MoeDistributeDispatchA2Impl

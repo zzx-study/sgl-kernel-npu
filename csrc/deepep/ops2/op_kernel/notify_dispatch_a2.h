@@ -177,6 +177,8 @@ public:
             SyncAll<true>();
 
             hccl_.Finalize();
+
+            printflag("notify dispatch");
         }
     }
 
