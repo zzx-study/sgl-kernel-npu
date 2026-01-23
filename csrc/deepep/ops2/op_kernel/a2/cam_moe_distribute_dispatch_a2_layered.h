@@ -671,12 +671,18 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
     }
     uint32_t destRankIdx = aivId_;
     uint32_t localRankId = rankId_ % SERVER_RANK_SIZE;
+    printf("674 rank:%d, coreId:%d\n",rankId_,aivId);
     GlobalTensor<uint64_t> globalSet;
     globalSet.SetGlobalBuffer((__gm__ uint64_t *)(shareAddrs[destRankIdx]) + localRankId * B64_PER_BLOCK);
+    printf("667 rank:%d, coreId:%d\n",rankId_,aivId);
     LocalTensor<uint64_t> localSet = tBuf.GetWithOffset<uint64_t>(B64_PER_BLOCK, 0);
+    printf("679 rank:%d, coreId:%d\n",rankId_,aivId);
     uint64_t setVal = MergeMagicWithValue(magicVal_, flagVal);
+    printf("681 rank:%d, coreId:%d\n",rankId_,aivId);
     localSet.SetValue(0, setVal);
+    printf("683 rank:%d, coreId:%d\n",rankId_,aivId);
     SyncFunc<AscendC::HardEvent::S_MTE3>();
+    printf("685 rank:%d, coreId:%d\n",rankId_,aivId);
     DataCopy(globalSet, localSet, B64_PER_BLOCK);
 }
 
@@ -858,20 +864,18 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
 {
     if ASCEND_IS_AIV {  // 全aiv处理
         Input2Win();
-        printf("finish Input2Win\n");
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
         WriteRdmaCntInfo();
-        printf("finish WriteRdmaCntInfo\n");
         DispatchBetweenServer();
-        printf("finish DispatchBetweenServer\n");
         WaitWindow();
-        printf("finish WaitWindow\n");
+        printf("finish WaitWindow rank:%d, coreId:%d\n",rankId_,aivId);
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
+        printf("start SetIpcFlag rank:%d, coreId:%d\n",rankId_,aivId);
 
         SetIpcFlag(IPC_FLAG_STEP_1);
-        printf("finish SetIpcFlag\n");
+        printf("finish SetIpcFlag rank:%d, coreId:%d\n",rankId_,aivId);
         WaitIpcFlag(IPC_FLAG_STEP_1);
         printf("finish WaitIpcFlag\n");
         PipeBarrier<PIPE_ALL>();
@@ -886,14 +890,11 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
         }
         PipeBarrier<PIPE_ALL>();
         SetIpcFlag(IPC_FLAG_STEP_2);
-        printf("finish SetIpcFlag\n");
         WaitIpcFlag(IPC_FLAG_STEP_2);
-        printf("finish WaitIpcFlag\n");
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
 
         hccl_.Finalize();
-        printf("finish dispatch\n");
     }
 }
 }  // namespace MoeDistributeDispatchA2Impl
