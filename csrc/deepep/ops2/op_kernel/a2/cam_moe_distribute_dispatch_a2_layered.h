@@ -671,18 +671,18 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
     }
     uint32_t destRankIdx = aivId_;
     uint32_t localRankId = rankId_ % SERVER_RANK_SIZE;
-    printf("674 rank:%d, coreId:%d\n",rankId_,aivId);
+    printf("674 rank:%d, coreId:%d\n",rankId_,aivId_);
     GlobalTensor<uint64_t> globalSet;
     globalSet.SetGlobalBuffer((__gm__ uint64_t *)(shareAddrs[destRankIdx]) + localRankId * B64_PER_BLOCK);
-    printf("667 rank:%d, coreId:%d\n",rankId_,aivId);
+    printf("667 rank:%d, coreId:%d\n",rankId_,aivId_);
     LocalTensor<uint64_t> localSet = tBuf.GetWithOffset<uint64_t>(B64_PER_BLOCK, 0);
-    printf("679 rank:%d, coreId:%d\n",rankId_,aivId);
+    printf("679 rank:%d, coreId:%d\n",rankId_,aivId_);
     uint64_t setVal = MergeMagicWithValue(magicVal_, flagVal);
-    printf("681 rank:%d, coreId:%d\n",rankId_,aivId);
+    printf("681 rank:%d, coreId:%d\n",rankId_,aivId_);
     localSet.SetValue(0, setVal);
-    printf("683 rank:%d, coreId:%d\n",rankId_,aivId);
+    printf("683 rank:%d, coreId:%d\n",rankId_,aivId_);
     SyncFunc<AscendC::HardEvent::S_MTE3>();
-    printf("685 rank:%d, coreId:%d\n",rankId_,aivId);
+    printf("685 rank:%d, coreId:%d\n",rankId_,aivId_);
     DataCopy(globalSet, localSet, B64_PER_BLOCK);
 }
 
@@ -869,13 +869,13 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
         WriteRdmaCntInfo();
         DispatchBetweenServer();
         WaitWindow();
-        printf("finish WaitWindow rank:%d, coreId:%d\n",rankId_,aivId);
+        printf("finish WaitWindow rank:%d, coreId:%d\n",rankId_,aivId_);
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
-        printf("start SetIpcFlag rank:%d, coreId:%d\n",rankId_,aivId);
+        printf("start SetIpcFlag rank:%d, coreId:%d\n",rankId_,aivId_);
 
         SetIpcFlag(IPC_FLAG_STEP_1);
-        printf("finish SetIpcFlag rank:%d, coreId:%d\n",rankId_,aivId);
+        printf("finish SetIpcFlag rank:%d, coreId:%d\n",rankId_,aivId_);
         WaitIpcFlag(IPC_FLAG_STEP_1);
         printf("finish WaitIpcFlag\n");
         PipeBarrier<PIPE_ALL>();
