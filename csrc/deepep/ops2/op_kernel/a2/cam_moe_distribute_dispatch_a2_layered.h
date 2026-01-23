@@ -213,7 +213,7 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
     GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut, GM_ADDR expertTokenNumsOut, GM_ADDR epRecvCountsOut,
     GM_ADDR expandScales, GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tilingGM)
 {
-    printflag("Init");
+    printf("Init \n");
     tpipe_ = pipe;
     REGISTER_TILING_DEFAULT(CamMoeDistributeDispatchA2TilingData);
     auto tiling = (__gm__ CamMoeDistributeDispatchA2TilingData *)tilingGM;
@@ -858,26 +858,26 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
 {
     if ASCEND_IS_AIV {  // 全aiv处理
         Input2Win();
-        printflag("finish Input2Win");
+        printf("finish Input2Win\n");
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
         WriteRdmaCntInfo();
-        printflag("finish WriteRdmaCntInfo");
+        printf("finish WriteRdmaCntInfo\n");
         DispatchBetweenServer();
-        printflag("finish DispatchBetweenServer");
+        printf("finish DispatchBetweenServer\n");
         WaitWindow();
-        printflag("finish WaitWindow");
+        printf("finish WaitWindow\n");
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
 
         SetIpcFlag(IPC_FLAG_STEP_1);
-        printflag("finish SetIpcFlag");
+        printf("finish SetIpcFlag\n");
         WaitIpcFlag(IPC_FLAG_STEP_1);
-        printflag("finish WaitIpcFlag");
+        printf("finish WaitIpcFlag\n");
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
         Ipc2Out();
-        printflag("finish Ipc2Out");
+        printf("finish Ipc2Out\n");
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
 
@@ -886,14 +886,14 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
         }
         PipeBarrier<PIPE_ALL>();
         SetIpcFlag(IPC_FLAG_STEP_2);
-        printflag("finish SetIpcFlag");
+        printf("finish SetIpcFlag\n");
         WaitIpcFlag(IPC_FLAG_STEP_2);
-        printflag("finish WaitIpcFlag");
+        printf("finish WaitIpcFlag\n");
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
 
         hccl_.Finalize();
-        printflag("finish dispatch");
+        printf("finish dispatch\n");
     }
 }
 }  // namespace MoeDistributeDispatchA2Impl

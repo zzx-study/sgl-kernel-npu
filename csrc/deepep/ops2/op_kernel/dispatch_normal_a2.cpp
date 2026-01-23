@@ -69,7 +69,7 @@ extern "C" __global__ __aicore__ void dispatch_normal_a2(
 
     TPipe pipe;
     if (TILING_KEY_IS(2100001000)) {
-        // NotifyDispatchA2<int> opKernel(rank, rankSize, extraFlag);
+        // NotifyDispatchA2<int> opKernel(rank, rankSize, extraFlagL );
         // opKernel.Init(KERNELS_ARGS_CALL_A2_ALL2ALL());
         // opKernel.Process();
         printf("========2100001000========\n");
