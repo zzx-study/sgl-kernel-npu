@@ -857,6 +857,7 @@ template <TemplateMC2TypeA2layeredClass>
 __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layeredFunc>::Process()
 {
     if ASCEND_IS_AIV {  // 全aiv处理
+        printf("start process rank:%d, coreId:%d\n",rankId_,aivId_);
         Input2Win();
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
@@ -886,13 +887,13 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
         SetIpcFlag(IPC_FLAG_STEP_2);
         WaitIpcFlag(IPC_FLAG_STEP_2);
         
-        printf("finish Ipc2Out\n");
+        printf("finish WaitIpcFlag rank:%d, coreId:%d\n",rankId_,aivId_);
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
 
         hccl_.Finalize();
         
-        printf("finish Ipc2Out\n");
+        printf("hccl_.Finalize() rank:%d, coreId:%d\n",rankId_,aivId_);
     }
 }
 }  // namespace MoeDistributeDispatchA2Impl
