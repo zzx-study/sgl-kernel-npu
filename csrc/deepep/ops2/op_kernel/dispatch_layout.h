@@ -86,6 +86,7 @@ public:
         tpipe_->InitBuffer(expertCountBuf_, maxAivNum * sizeof(int32_t));  // moeNum * 4
         LocalTensor<int32_t> expertCountTensor_ = expertCountBuf_.Get<int32_t>();
         Duplicate<int32_t>(expertCountTensor_, 0, maxAivNum);
+        printf
         if (coreIdx_ > 10 && coreIdx_ < 16) {
             SyncAll(syncFuncGmWorkSpaceGM_, expertCountTensor_, 5);
         }
