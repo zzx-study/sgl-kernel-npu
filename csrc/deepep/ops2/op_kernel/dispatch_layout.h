@@ -86,11 +86,14 @@ public:
         tpipe_->InitBuffer(expertCountBuf_, maxAivNum * sizeof(int32_t));  // moeNum * 4
         LocalTensor<int32_t> expertCountTensor_ = expertCountBuf_.Get<int32_t>();
         Duplicate<int32_t>(expertCountTensor_, 0, maxAivNum);
-        printf
+        syncFuncGmWorkSpaceGM_.SetValue(maxAivNum + coreIdx_, coreIdx_);
+        AscendC::DataCacheCleanAndInvalid<uint64_t, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(syncFuncGmWorkSpaceGM_);
+        printf("enter wait coridx:%d", coreIdx_);
         if (coreIdx_ > 10 && coreIdx_ < 16) {
             SyncAll(syncFuncGmWorkSpaceGM_, expertCountTensor_, 5);
         }
-        syncFuncGmWorkSpaceGM_.SetValue(maxAivNum + coreIdx_, coreIdx_);
+        printf("end wait coridx:%d", coreIdx_);
+
         AscendC::DumpTensor(syncFuncGmWorkSpaceGM_[maxAivNum + coreIdx_], 1000 + coreIdx_,2);
         return;
         tpipe_->Reset();
