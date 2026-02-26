@@ -31,7 +31,7 @@ public:
     __aicore__ inline DispatchLayout(){};
 
     __aicore__ inline void Init(GM_ADDR topkIdx, GM_ADDR numTokensPerRank, GM_ADDR numTokensPerExpert,
-                                GM_ADDR isTokenInRank, GM_ADDR notifySendData, GM_ADDR sendTokenIdxSmall,
+                                GM_ADDR isTokenInRank, GM_ADDR notifySendData, GM_ADDR sendTokenIdxSmall,GM_ADDR syncFuncGmWorkSpace,
                                 GM_ADDR workspace, TPipe *pipe, const DispatchLayoutTilingData *tilingData)
     {
         numTokens_ = tilingData->dispatchLayoutInfo.numTokens;
@@ -76,10 +76,22 @@ public:
 
         tempExpertGM_.SetGlobalBuffer((__gm__ T *)notifySendData);
         numTokensPerRankGM_.SetGlobalBuffer((__gm__ T *)numTokensPerRank);
+        syncFuncGmWorkSpaceGM_.SetGlobalBuffer((__gm__ int32_t *)syncFuncGmWorkSpace);
     }
 
     __aicore__ inline void Process()
     {
+        uint32_t maxAivNum = GetBlockNum();
+        TBuf<int32_t> expertCountBuf_;
+        tpipe_->InitBuffer(expertCountBuf_, maxAivNum * sizeof(int32_t));  // moeNum * 4
+        expertCountTensor_ = expertCountBuf_.Get<int32_t>();
+        Duplicate<int32_t>(expertCountTensor_, 0, maxAivNum);
+        if (coreIdx_ > 10 && coreIdx_ < 16) {
+            SyncAll(syncFuncGmWorkSpaceGM_, expertCountTensor_, 5);
+        }
+        syncFuncGmWorkSpaceGM_.SetValue(maxAivNum + coreIdx_, coreIdx_);
+        AscendC::DumpTenosr(syncFuncGmWorkSpaceGM_[maxAivNum + coreIdx_], 1000 + coreIdx_,2);
+        return;
         tpipe_->Reset();
         tpipe_->InitBuffer(topkIdxBuf_, topkIdx32AlignIntLen_);
         tpipe_->InitBuffer(numTokensPerRankBuf_, numTokensPerRank32AlignIntLen_);
@@ -225,6 +237,7 @@ private:
     GlobalTensor<T> isTokenInRankGM_;
     GlobalTensor<T> tempExpertGM_;
     GlobalTensor<T> sendTokenIdxSmallGM_;
+    GlobalTensor<int32_t> syncFuncGmWorkSpaceGM_;
 
     TBuf<> topkIdxBuf_;
     TBuf<> numTokensPerRankBuf_;

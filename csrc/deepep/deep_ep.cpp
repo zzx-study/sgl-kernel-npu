@@ -21,6 +21,7 @@ constexpr uint32_t MAX_ROUNDS = 256;
 constexpr uint32_t MIN_TOKENS_PER_ROUND = 32;
 constexpr uint32_t MAX_TOKENS_PER_ROUND = 8192;
 constexpr uint32_t MAX_TOTAL_TOKENS = 131072;
+constexpr uint32_t AICORE_NUM_MAX = 100;
 
 Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
                std::string moe_all_to_all_group_name)
@@ -150,9 +151,10 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     auto send_token_idx_small = at::zeros({num_tokens, num_topk}, at::dtype(at::kInt).device(device));
     auto notify_send_data = at::zeros({notify_send_data_size}, at::dtype(at::kInt).device(device));
     int32_t rank_id = static_cast<int>(rank);
+    auto syncFuncGmWorkSpace = at::zeros({AICORE_NUM_MAX}, at::dtype(at::kInt).device(device));
     EXEC_NPU_CMD(aclnnDispatchLayout, new_topk_idx, num_tokens, num_ranks, num_experts, num_topk, local_ranksize,
                  per_round_tokens, rank_id, num_tokens_per_rank, num_tokens_per_expert, is_token_in_rank,
-                 notify_send_data, send_token_idx_small);
+                 notify_send_data, send_token_idx_small, syncFuncGmWorkSpace);
 
     this->notify_send_data = notify_send_data;
     this->send_token_idx_small = send_token_idx_small;
