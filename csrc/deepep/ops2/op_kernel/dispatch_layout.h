@@ -87,7 +87,7 @@ public:
         LocalTensor<int32_t> expertCountTensor_ = expertCountBuf_.Get<int32_t>();
         Duplicate<int32_t>(expertCountTensor_, 0, maxAivNum);
         syncFuncGmWorkSpaceGM_.SetValue(maxAivNum + coreIdx_, coreIdx_);
-        AscendC::DataCacheCleanAndInvalid<uint64_t, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(syncFuncGmWorkSpaceGM_);
+        AscendC::DataCacheCleanAndInvalid<int32_t, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(syncFuncGmWorkSpaceGM_);
         if (coreIdx_ > 10 && coreIdx_ < 16) {
         printf("enter wait coridx:%d", coreIdx_);
             SyncAll(syncFuncGmWorkSpaceGM_, expertCountTensor_, 5);
