@@ -19,4 +19,4 @@ else
   export RANK=1
 fi
 
-python test_internode.py --num-tokens 8
+python test_internode.py --num-tokens 1

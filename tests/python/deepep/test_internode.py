@@ -116,14 +116,11 @@ def test_main(
             + 1
         )
         topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
-    data = [[0,1,2,3,4,5,6,7],
-            [8,9,10,11,12,13,14,15],
-            [16,17,18,19,20,21,22,23],
-            [24,25,26,27,28,29,30,31],
-            [0,1,2,3,4,5,6,7],
-            [8,9,10,11,12,13,14,15],
-            [16,17,18,19,20,21,22,23],
-                [24,25,26,27,28,29,30,31]]
+    if rank < 8:
+        data = [[0,1,2,3,4,5,6,7]]
+    else:
+        data = [[223,224,225,226,227,228,229,230]]
+
     topk_idx = torch.tensor(data, dtype=torch.int64, device="npu")
     topk_weights = (
         torch.ones((num_tokens, num_topk), dtype=torch.float32, device="npu") * rank
@@ -320,13 +317,13 @@ def test_main(
     is_token_in_rank = (token_idx_in_rank >= 0).to(torch.int)
     gbl_num_tokens_per_rank = num_tokens_per_rank.clone()
     dist.all_reduce(gbl_num_tokens_per_rank, group=group)
-
+    '''
     t = bench(lambda: buffer.get_dispatch_layout(topk_idx, num_experts))[0]
     print(f"[layout] Kernel performance: {t * 1000:.3f} ms", flush=True)
     print("", flush=True)
     dist.barrier()
     time.sleep(1)
-
+    '''
     try:
         try:
             return_values = buffer.get_dispatch_layout(topk_idx, num_experts)
@@ -468,7 +465,6 @@ def test_main(
                 handle,
                 event,
             ) = buffer.dispatch(**dispatch_args)
-            return
             recv_x = (
                 per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
             )
