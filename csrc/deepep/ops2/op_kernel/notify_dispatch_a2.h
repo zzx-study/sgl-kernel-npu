@@ -932,7 +932,7 @@ private:
                     DataCopyPad(tokenPerRank, epRankTokenCntOutputGT_[topk * rankSize], copyParams, padParams);
                     SyncFunc<AscendC::HardEvent::MTE2_V>();
                     Cast(floatTmpLt, tokenPerRank, RoundMode::CAST_NONE, rankSize);
-                    if (i % localRankSize != 0) {
+                    if (i != 0) {
                         PipeBarrier<PIPE_V>();
                         ReduceSum(floatTmpSumLt, floatTmpLt, sharedTmpUint8Buffer, i);
                         PipeBarrier<PIPE_V>();
