@@ -20,6 +20,8 @@
 #include "../op_kernel/moe_distribute_dispatch_tiling.h"
 #include "../op_kernel/moe_distribute_dispatch_v2_tiling.h"
 
+#include "tiling/platform/platform_ascendc.h"
+#include "tiling/hccl/hccl_tiling.h"
 #ifdef USE_CANN83_PATH
 #include "platform/platform_infos_def.h"
 #elif defined(USE_CANN82_PATH)
@@ -73,6 +75,7 @@ constexpr uint32_t NO_SCALES = 0;
 constexpr uint32_t STATIC_SCALES = 1;
 constexpr uint32_t DYNAMIC_SCALES = 2;
 constexpr uint32_t OP_TYPE_ALL_GATHER = 6;
+constexpr uint64_t TILING_KEY_A5_TYPE = 5000;
 
 constexpr uint32_t UNQUANT_MODE = 0;
 constexpr uint32_t STATIC_QUANT_MODE = 1;
@@ -1199,10 +1202,18 @@ static ge::graphStatus MoeDistributeDispatchA3TilingFuncImpl(gert::TilingContext
 
     SetHcommCfg(context, tilingData);
 
-    uint64_t tilingKey = INIT_TILINGKEY;
+    uint64_t tilingKey = TILING_KEY_A3_TYPE;
     uint32_t tpWorldSize = tilingData->moeDistributeDispatchV2Info.tpWorldSize;
     CalTilingKey(tilingKey, isScales, quantMode, tpWorldSize, isSetCommAlg);
-    OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);
+    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
+    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
+    std::string socVersion;
+    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
+
+    if (socVersion == "Ascend950") {
+        tilingKey = tilingKey + TILING_KEY_A5_TYPE;
+    }
+    OP_LOGD(nodeName, "tilingKey is %lu socVersion %s", tilingKey, socVersion.c_str());
     context->SetTilingKey(tilingKey);
 
     OP_TILING_CHECK(SetAivInfo(context, tilingData, nodeName) != ge::GRAPH_SUCCESS,

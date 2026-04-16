@@ -22,6 +22,7 @@
 #include "cam_moe_dispatch_v2_tiling.h"
 #include "comm_args.h"
 #include "moe_distribute_v2_base.h"
+#include "common.h"
 
 #define FLOAT_OVERFLOW_MODE_CTRL 60
 namespace MoeDistributeDispatchA5Impl {

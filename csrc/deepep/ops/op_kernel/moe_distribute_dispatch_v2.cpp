@@ -15,10 +15,18 @@ using namespace MoeDistributeDispatchV2Impl;
  *     0: 无, 1: 有
  * 第3位（百位）：是否做tp域allgather:
  *     0: 不做, 1: 做
- * 第4位（千位）：是否走fullmesh_v2模板:
- *     0: 不做, 1: 做
+ * 第4位（千位）：是否走fullmesh_v2模板 | 是否是A5环境:
+ *     0: 不做, 1: 做, 5：A5不走fullmesh_v2模板
  * 第5位（万位）：无实际意义
  */
+
+enum QuantMode {
+    QUANT_MODE_NO_QUANT = 0,
+    QUANT_MODE_STATIC = 1,
+    QUANT_MODE_PERTOKEN = 2,
+    QUANT_MODE_PERGROUP = 3,
+    QUANT_MODE_MX = 4,
+};
 
 extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(GM_ADDR x, GM_ADDR expertIds, GM_ADDR scales,
                                                                  GM_ADDR xActiveMask, GM_ADDR elasticInfo,
@@ -46,6 +54,22 @@ extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(GM_ADDR x, GM_A
         op.Process();
         return;
     }
+    if (TILING_KEY_IS(15100)) {
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchA5<DTYPE_X, DTYPE_EXPAND_X, QuantMode::QUANT_MODE_NO_QUANT, false, true> op;
+        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        op.Process();
+        return;
+    }
+    if (TILING_KEY_IS(15000)) {
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchA5<DTYPE_X, DTYPE_EXPAND_X, QuantMode::QUANT_MODE_NO_QUANT, false, false> op;
+        op.Init(x, expertIds, scales, expandXOut, xActiveMask, dynamicScalesOut, expertTokenNumsOut, epSendCountsOut,
+                tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        op.Process();
+        return;
+    }
 #elif (ORIG_DTYPE_EXPAND_X == DT_INT8)
     if (TILING_KEY_IS(10011)) {
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
@@ -58,6 +82,22 @@ extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(GM_ADDR x, GM_A
     if (TILING_KEY_IS(10002)) {
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
         MoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, false, false> op;
+        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        op.Process();
+        return;
+    }
+    if (TILING_KEY_IS(15011)) {
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchA5<DTYPE_X, DTYPE_EXPAND_X, QuantMode::QUANT_MODE_STATIC, false, false> op;
+        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        op.Process();
+        return;
+    }
+    if (TILING_KEY_IS(15002)) {
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchA5<DTYPE_X, DTYPE_EXPAND_X, QuantMode::QUANT_MODE_PERTOKEN, false, false> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
@@ -79,6 +119,22 @@ extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(GM_ADDR x, GM_A
         op.Process();
         return;
     }
+    if (TILING_KEY_IS(15012)) {
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchA5<DTYPE_X, DTYPE_EXPAND_X, QuantMode::QUANT_MODE_STATIC, true, false> op;
+        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        op.Process();
+        return;
+    }
+    if (TILING_KEY_IS(15111)) {
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchA5<DTYPE_X, DTYPE_EXPAND_X, QuantMode::QUANT_MODE_PERTOKEN, true, false> op;
+        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        op.Process();
+        return;
+    }
     if (TILING_KEY_IS(10102)) {
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
         MoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, false, true> op;
@@ -90,6 +146,22 @@ extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(GM_ADDR x, GM_A
     if (TILING_KEY_IS(10112)) {
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
         MoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, true, true> op;
+        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        op.Process();
+        return;
+    }
+    if (TILING_KEY_IS(15102)) {
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchA5<DTYPE_X, DTYPE_EXPAND_X, QuantMode::QUANT_MODE_STATIC, false, true> op;
+        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        op.Process();
+        return;
+    }
+    if (TILING_KEY_IS(15112)) {
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchA5<DTYPE_X, DTYPE_EXPAND_X, QuantMode::QUANT_MODE_PERTOKEN, true, true> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();

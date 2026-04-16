@@ -11,7 +11,7 @@ struct MatMul {
         MATMUL_WITH_BIAS,     // C = op(A) * op(B) + Bias, where Bias is a vector.
         MATMUL_EIN_SUM
     };
-    enum class QuantMode : uint32_t { PER_CHANNEL_SYMM = 0, PER_CHANNEL_ASYMM, PER_TOKEN_SYMM };
+    enum class QuantMode : uint32_t { PER_CHANNEL_SYMM = 0, PER_CHANNEL_ASYMM, PER_TOKEN_SYMM, NO_QUANT};
 };
 
 enum class TensorDType : uint32_t { TENSOR_DTYPE_FLOAT16 = 0, TENSOR_DTYPE_BF16 };
