@@ -1,5 +1,5 @@
-#ifndef NOTIFY_DISPATCH_H
-#define NOTIFY_DISPATCH_H
+#ifndef NOTIFY_DISPATCH_A5_H
+#define NOTIFY_DISPATCH_A5_H
 
 #include <climits>
 #include "kernel_operator.h"
@@ -26,12 +26,13 @@ using namespace MoeDistributeV2Base;
         totalWinSize
 
 template <typename T>
-class NotifyDispatch
+class NotifyDispatchA5
 {
     constexpr static int32_t MAX_RANK_PER_CORE = 8;
     constexpr static int32_t MULTI_RANK_SIZE = 48;
     constexpr static int32_t MAX_BUFFER_NUMBER = 10;
     constexpr static uint32_t UB_FLAG_SIZE = 8U * 1024U;
+    constexpr static uint64_t STATE_WIN_OFFSET = 1000 * 1024;
 
     constexpr static int32_t TOTAL_CNT_CORE = 0;
     constexpr static int32_t RECV_COUNT_CORE = 1;
@@ -46,7 +47,7 @@ class NotifyDispatch
     constexpr static int64_t MAGIC_MASK = ~((1LL << 32) - 1);
 
 public:
-    __aicore__ inline NotifyDispatch(int rank, int rankSize, uint32_t extraFlag)
+    __aicore__ inline NotifyDispatchA5(int rank, int rankSize, uint32_t extraFlag)
         : rank(rank), rankSize(rankSize), extraFlag(extraFlag)
     {}
 
@@ -683,6 +684,7 @@ private:
     int32_t blockIdx;  // Index of the current aicore
     int32_t blockNum;  // Total number of aicores for the current rank
     uint32_t maxBsNum{0};
+    uint32_t baseWindSize{0};
     GM_ADDR scale;
     GM_ADDR shareAddrs[CAM_MAX_RANK_SIZE];  // List of shared memory addresses
     GM_ADDR totalRecvTokens_;
@@ -693,8 +695,8 @@ private:
     GM_ADDR rInSrcrankOffset_;
     GM_ADDR maxBs_;
     GM_ADDR recvTokensPerExpert_;
-    __gm__ HcclOpResParam *winContext_[COMM_NUM]{nullptr, nullptr};
-    Hccl<HCCL_SERVER_TYPE_AICPU> hccl_;
+    __gm__ HcclOpParam *winContext_[COMM_NUM]{nullptr, nullptr};
+    // Hccl<HCCL_SERVER_TYPE_AICPU> hccl_;
     TPipe pipe;
     TBuf<QuePosition::VECCALC> tBuf;
     TBuf<> tokenPerExpertDataBuf;
@@ -731,38 +733,31 @@ private:
 };
 
 template <typename T>
-__aicore__ inline int64_t NotifyDispatch<T>::GetDataCount(const int64_t dataLen, const int64_t useBlockNum)
+__aicore__ inline int64_t NotifyDispatchA5<T>::GetDataCount(const int64_t dataLen, const int64_t useBlockNum)
 {
     return dataLen / useBlockNum;
 }
 
 template <typename T>
-__aicore__ inline GM_ADDR NotifyDispatch<T>::GetWindAddrByRankId(const int32_t rankId, uint8_t ctxIdx)
+__aicore__ inline GM_ADDR NotifyDispatchA5<T>::GetWindAddrByRankId(const int32_t rankId, uint8_t ctxIdx)
 {
     uint32_t curRankId = rank;
-#ifdef OPT_RANK_OFFSET
-#pragma message("use rank offset")
-    if (curRankId == rankId) {
-        return (GM_ADDR)(winContext_[ctxIdx]->localWindowsIn) + rankId * OPT_RANK_OFFSET;
-    }
-    return (GM_ADDR)(((HcclRankRelationResV2 *)(winContext_[ctxIdx]->remoteRes[rankId].nextDevicePtr))->windowsIn) +
-           rankId * OPT_RANK_OFFSET;
-#else
-    if (curRankId == rankId) {
-        return (GM_ADDR)(winContext_[ctxIdx]->localWindowsIn);
-    }
-    return (GM_ADDR)(((HcclRankRelationResV2 *)(winContext_[ctxIdx]->remoteRes[rankId].nextDevicePtr))->windowsIn);
-#endif
+    return GetBaseWindStateAddrByRankId(winContext_[ctxIdx], rankId, curRankId);
 }
 
 // Assign values to winContext_[COMM_EP_IDX] and blockIdx before calling
 template <typename T>
-__aicore__ inline uint64_t NotifyDispatch<T>::GetMagicValue(void)
+__aicore__ inline uint64_t NotifyDispatchA5<T>::GetMagicValue(void)
 {
     uint64_t magic = 0;
     GlobalTensor<uint64_t> selfDataStatusTensor;
-    GM_ADDR statusDataSpaceGm = (GM_ADDR)(winContext_[COMM_EP_IDX]->localWindowsExp);
+    GM_ADDR statusDataSpaceGm = GetStatusDataSpaceGm(winContext_[COMM_EP_IDX]);
     selfDataStatusTensor.SetGlobalBuffer((__gm__ uint64_t *)(statusDataSpaceGm + STATE_WIN_OFFSET));
+    printf("[RANK %d AIC %d] statusDataSpaceGm %d rankId %d rankDim %d winSize %d\n",
+        rank, blockIdx, statusDataSpaceGm, GetRankId(winContext_[COMM_EP_IDX]), GetRankDim(winContext_[COMM_EP_IDX]), GetWinSize(winContext_[COMM_EP_IDX]));
+    for (int i = 0; i < 32 && blockIdx == 0; ++i) {
+        printf("[RANK %d AIC %d] windowsIn[%d] %d\n", rank, blockIdx, i, winContext_[COMM_EP_IDX]->windowsIn[i]);
+    }
     DataCacheCleanAndInvalid<uint64_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
         selfDataStatusTensor[blockIdx * UB_ALIGN_SIZE]);
     magic = selfDataStatusTensor(blockIdx * UB_ALIGN_SIZE);
@@ -774,7 +769,7 @@ __aicore__ inline uint64_t NotifyDispatch<T>::GetMagicValue(void)
 }
 
 template <typename T>
-__aicore__ inline void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL2ALL())
+__aicore__ inline void NotifyDispatchA5<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL2ALL())
 {
     this->root = root;
     this->len = len;
@@ -795,10 +790,12 @@ __aicore__ inline void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL
     blockNum = GetBlockNum();
     uint8_t ctxIdx;
 
-    winContext_[COMM_EP_IDX] = (__gm__ HcclOpResParam *)AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
+    winContext_[COMM_EP_IDX] = (__gm__ HcclOpParam *)AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
+    baseWindSize = GetWinSize(winContext_[COMM_EP_IDX]) - A5_MTE_STATE_WIN_SIZE;
+    printf("[RANK %d AIC %d] winContext_ %p totalWinSize %d baseWindSize %d\n", rank, blockIdx, winContext_[COMM_EP_IDX], totalWinSize, baseWindSize);
     this->magic = GetMagicValue();
     ctxIdx = COMM_EP_IDX;
-    uint64_t winDataOffset = (this->magic % PING_PONG_SIZE) * (totalWinSize / 2);
+    uint64_t winDataOffset = (this->magic % PING_PONG_SIZE) * (baseWindSize / 2);
 
     shareAddrs[rank] = GetWindAddrByRankId(rank, ctxIdx) + winDataOffset;
 
@@ -808,6 +805,8 @@ __aicore__ inline void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL
     if (copyLen > 0) {
         for (int i = copyOffset; i < copyOffset + copyLen; ++i) {
             shareAddrs[i] = GetWindAddrByRankId(i, ctxIdx) + winDataOffset;
+            if (blockIdx == 0)
+                printf("[RANK %d AIC %d] magic %d shareAddrs[%d] %d\n", rank, blockIdx, magic, i, shareAddrs[i]);
         }
     }
 
@@ -841,7 +840,7 @@ __aicore__ inline void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL
  */
 template <typename T>
 template <typename K, typename U>
-__aicore__ inline void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRemain,
+__aicore__ inline void NotifyDispatchA5<T>::CpGM2GMPingPong(int64_t dataSizeRemain,
                                                           const GlobalTensor<U> &sendDataInputGt,
                                                           const GlobalTensor<K> &recvDataOutputGT, int op)
 {
@@ -904,7 +903,7 @@ __aicore__ inline void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRemain
 
 template <typename T>
 template <typename F>
-__aicore__ inline void NotifyDispatch<T>::SetAtomic(int op)
+__aicore__ inline void NotifyDispatchA5<T>::SetAtomic(int op)
 {
     PipeBarrier<PIPE_ALL>();
     if (op != -1) {
@@ -916,7 +915,7 @@ __aicore__ inline void NotifyDispatch<T>::SetAtomic(int op)
 }
 
 template <typename T>
-__aicore__ inline void NotifyDispatch<T>::UnsetAtomic(int op)
+__aicore__ inline void NotifyDispatchA5<T>::UnsetAtomic(int op)
 {
     if (op != -1) {
         AscendC::SetAtomicNone();
@@ -926,10 +925,10 @@ __aicore__ inline void NotifyDispatch<T>::UnsetAtomic(int op)
 
 template <typename T>
 template <HardEvent eventType>
-__aicore__ inline void NotifyDispatch<T>::SetWaitEvent(event_t eventId)
+__aicore__ inline void NotifyDispatchA5<T>::SetWaitEvent(event_t eventId)
 {
     AscendC::SetFlag<eventType>(eventId);
     AscendC::WaitFlag<eventType>(eventId);
 }
 
-#endif  // NOTIFY_DISPATCH_H
+#endif  // NOTIFY_DISPATCH_A5_H
