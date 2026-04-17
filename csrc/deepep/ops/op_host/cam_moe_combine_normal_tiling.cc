@@ -60,7 +60,7 @@ constexpr size_t MAX_GROUP_NAME_LENGTH = 128UL;
 constexpr int64_t MAX_EP_WORLD_SIZE = 384;
 constexpr int64_t MIN_EP_WORLD_SIZE = 2;
 constexpr int64_t MAX_TP_WORLD_SIZE = 2;
-constexpr int64_t BS_UPPER_BOUND = 32768;
+constexpr int64_t BS_UPPER_BOUND = 65536;
 
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr int32_t HCCL_BUFFER_SIZE_DEFAULT = 200 * 1024 * 1024;  // Bytes
@@ -405,7 +405,7 @@ static bool CheckTensorShape(gert::TilingContext *context, CamMoeCombineNormalTi
     int64_t xDim0 = xStorageShape->GetStorageShape().GetDim(0);
     int64_t xDim1 = xStorageShape->GetStorageShape().GetDim(1);
     OP_TILING_CHECK(xDim0 != topkWeightsDim0,
-                    OP_LOGE(nodeName, "x's dim0 is greater than bs, bs = %ld, x's dim0 = %ld", topkWeightsDim0, xDim0),
+                    OP_LOGE(nodeName, "x's dim0 not equal to bs, bs = %ld, x's dim0 = %ld", topkWeightsDim0, xDim0),
                     return false);
     OP_TILING_CHECK(xDim1 != recvXDim1,
                     OP_LOGE(nodeName, "x's dim1 not equal to h, x's dim1 = %ld, h = %ld", xDim1, recvXDim1),
