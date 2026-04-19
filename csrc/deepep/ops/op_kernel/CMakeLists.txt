@@ -33,7 +33,7 @@ npu_op_package_add(${package_name}
     LIBRARY ascendc_kernels
 )
 
-npu_op_kernel_options("" ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off)
+npu_op_kernel_options("" ALL OPTIONS -DASCENDC_DUMP=1 --cce-auto-sync=off)
 # add_ops_compile_options(ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off)
 
 # add_kernels_compile()

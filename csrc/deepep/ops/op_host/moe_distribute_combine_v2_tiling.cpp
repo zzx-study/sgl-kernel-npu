@@ -19,7 +19,6 @@
 #include "../op_kernel/moe_distribute_combine_tiling.h"
 #include "../op_kernel/moe_distribute_combine_v2_tiling.h"
 #include "platform/platform_infos_def.h"
-#include "moe_distribute_dispatch_v2_ccu_tiling.h"
 
 using namespace AscendC;
 using namespace ge;

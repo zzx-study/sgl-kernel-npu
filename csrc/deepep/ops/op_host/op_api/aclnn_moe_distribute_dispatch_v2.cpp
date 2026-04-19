@@ -36,6 +36,7 @@ aclnnStatus aclnnMoeDistributeDispatchV2GetWorkspaceSize(
     const aclTensor *expertTokenNumsOut, const aclTensor *epRecvCountsOut, const aclTensor *tpRecvCountsOut,
     uint64_t *workspaceSize, aclOpExecutor **executor)
 {
+    printf("RANK %d OP_API aclnnInnerMoeDistributeDispatchV2GetWorkspaceSize\n", epRankId);
     return aclnnInnerMoeDistributeDispatchV2GetWorkspaceSize(
         x, expertIds, scalesOptional, xActiveMaskOptional, nullptr, groupEp, epWorldSize, epRankId, moeExpertNum,
         groupTp, tpWorldSize, tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs,

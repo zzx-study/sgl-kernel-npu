@@ -40,6 +40,7 @@ aclnnStatus aclnnMoeDistributeCombineV2GetWorkspaceSize(
     int64_t sharedExpertRankNum, int64_t globalBs, int64_t outDtype, int64_t commQuantMode, int64_t groupListType,
     char *commAlg, const aclTensor *xOut, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
+    printf("RANK %d OP_API aclnnInnerMoeDistributeCombineV2GetWorkspaceSize\n", epRankId);
     return aclnnInnerMoeDistributeCombineV2GetWorkspaceSize(
         expandX, expertIds, assistInfoForCombine, epSendCounts, expertScales, tpSendCountsOptional, xActiveMaskOptional,
         activationScaleOptional, weightScaleOptional, groupListOptional, expandScalesOptional, sharedExpertXOptional,

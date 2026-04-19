@@ -1015,7 +1015,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         EP_HOST_ASSERT(isLayered == false);
         active_mask = (new_topk_idx >= 0).to(torch::kBool);
     }
-
+    printf("RANK %d DEEPEP_CPP dispatch low-latency entry");
     EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, new_x, new_topk_idx,
                  scales,        // smooth scales,
                  active_mask,   // active_mask
@@ -1032,7 +1032,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                  quant_mode,
                  global_bs,               // global_bs
                  expert_token_nums_type,  // expert_token_nums_type
-                 comm_alg, packed_recv_x,
+                 "ccu", packed_recv_x,
                  packed_recv_x_scales,  // dynamicScalesOut
                  expandIdx,
                  packed_recv_count,  // expertTokenNumsOut
@@ -1121,12 +1121,12 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
         EP_HOST_ASSERT(isLayered == false);
         x_active_mask = (new_topk_idx >= 0).to(torch::kBool);
     }
-
+    printf("RANK %d DEEPEP_CPP combine low-latency entry");
     EXEC_NPU_CMD(aclnnMoeDistributeCombineV2, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
                  tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
                  shared_expert_x, hcom_ep_name, num_ranks, rank, num_experts, hcom_tp_name, tp_world_size, tp_rankId,
                  expert_shared_type, shared_expert_num, shared_expert_rank_num, global_bs, out_dtype, comm_quant_mode,
-                 group_list_type, comm_alg, combined_x);
+                 group_list_type, "ccu", combined_x);
     if (this->is_padding) {
         if (this->padding_cnt == PADDING_SIZE) {
             combined_x = this->ori_x;

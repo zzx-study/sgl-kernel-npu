@@ -18,22 +18,24 @@
 
 #include "lib/hccl/hccl.h"
 #include "common.h"
-#include "../quantize_functions.h"
-#if ASC_DEVKIT_MAJOR >= 9
-#include "basic_api/kernel_basic_intf.h"
-#else
-#include "kernel_operator.h"
-#endif
 #include "adv_api/reduce/sum.h"
-#include "../moe_distribute_dispatch_v2_tiling.h"
-#if __has_include("../../common/op_kernel/mc2_kernel_utils.h")
-#include "../../common/op_kernel/mc2_kernel_utils.h"
-#else
-#include "../../../common/op_kernel/mc2_kernel_utils.h"
-#endif
+#include "moe_distribute_dispatch_v2_tiling.h"
+#include "moe_distribute_base.h"
+#include "moe_distribute_v2_base.h"
+#include "quantize_functions.h"
+// #if ASC_DEVKIT_MAJOR >= 9
+// #include "basic_api/kernel_basic_intf.h"
+// #else
+// #include "kernel_operator.h"
+// #endif
+// #if __has_include("../../common/op_kernel/mc2_kernel_utils.h")
+// #include "../../common/op_kernel/mc2_kernel_utils.h"
+// #else
+// #include "../../../common/op_kernel/mc2_kernel_utils.h"
+// #endif
 
 #define FLOAT_OVERFLOW_MODE_CTRL 60
-namespace MoeDistributeDispatchA5Impl {
+namespace MoeDistributeDispatchA5CCUImpl {
 constexpr uint8_t BUFFER_NUM = 2;
 constexpr uint8_t QUANT_PADDING_VALUE = 0;
 constexpr uint64_t HALF_DATA_SIZE_DIV = 2;
@@ -62,6 +64,7 @@ constexpr uint32_t MX_QUANT = 4;
 #define TemplateMoeDistributeDispatchA5TypeFunc XType, ExpandXOutType, StaticQuant, DynamicQuant, IsSmoothScaleExist, IsNeedAllgather
 
 using namespace AscendC;
+using namespace MoeDistributeV2Base;
 template <TemplateMoeDistributeDispatchA5TypeClass>
 class MoeDistributeDispatchA5 {
 public:
@@ -220,7 +223,7 @@ MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5TypeFunc>::InitGlobalAttr
     sharedExpertRankNum_ = tilingData->moeDistributeDispatchV2Info.sharedExpertRankNum;
     aivNum_ = tilingData->moeDistributeDispatchV2Info.aivNum;
     expertTokenNumsType_ = tilingData->moeDistributeDispatchV2Info.expertTokenNumsType;
-    scalesCount_ = tilingData->moeDistributeDispatchV2Info.scalesCount;
+    // scalesCount_ = tilingData->moeDistributeDispatchV2Info.scalesCount;
     moeExpertRankNum_ = epWorldSize_ - sharedExpertRankNum_;
     localExpertNum_ = moeExpertNum_ / moeExpertRankNum_;
     sharedExpertNum_ = tilingData->moeDistributeDispatchV2Info.sharedExpertNum;
@@ -391,7 +394,7 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
     perTokenInSize_ = axisH_ * sizeof(XType);
     perTokenOutSize_ = axisH_ * sizeof(ExpandXOutType);
     perTokenMergeSize_ = Align32(axisH_) * sizeof(ExpandXOutType);
-    scaleInBytes_ = tilingData->moeDistributeDispatchV2Info.scalesCol * tilingData->moeDistributeDispatchV2Info.scalesTypeSize;
+    // scaleInBytes_ = tilingData->moeDistributeDispatchV2Info.scalesCol * tilingData->moeDistributeDispatchV2Info.scalesTypeSize;
     scaleOutBytes_ = 0;
     QuantInit();
 
@@ -406,20 +409,20 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
     DataCopyParams scalesInParams = {1U, static_cast<uint16_t>(axisH_ * sizeof(float)), 0U, 0U};
     DataCopyPadParams scalesPadParams = {false, 0, 0, 0};
     if constexpr (Std::IsSame<ExpandXOutType, int8_t>::value) {
-        if (scalesCount_ == 1) {
-            DataCacheCleanAndInvalid<float, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(scalesGT_);
-            float scaleVal = scalesGT_(0);
-            SyncFunc<AscendC::HardEvent::S_V>();
-            Muls(tokenF32LT_, tokenF32LT_, scaleVal, axisH_);
-        } else if (scalesCount_ == axisH_) {
-            DataCopyPad(scalesLT_, scalesGT_, scalesInParams, scalesPadParams);
-        } else {
+        // if (scalesCount_ == 1) {
+        //     DataCacheCleanAndInvalid<float, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(scalesGT_);
+        //     float scaleVal = scalesGT_(0);
+        //     SyncFunc<AscendC::HardEvent::S_V>();
+        //     Muls(tokenF32LT_, tokenF32LT_, scaleVal, axisH_);
+        // } else if (scalesCount_ == axisH_) {
+        //     DataCopyPad(scalesLT_, scalesGT_, scalesInParams, scalesPadParams);
+        // } else {
             DataCopyPad(scalesLT_, scalesGT_[expertIndex * axisH_], scalesInParams, scalesPadParams);
-        }
-        if (scalesCount_ != 1) {
+        // }
+        // if (scalesCount_ != 1) {
             SyncFunc<AscendC::HardEvent::MTE2_V>();
             Mul(tokenF32LT_, tokenF32LT_, scalesLT_, axisH_);
-        }
+        // }
 
         LocalTensor<int32_t> tokenI32LT = tokenF32LT_.ReinterpretCast<int32_t>();
         Cast(tokenI32LT, tokenF32LT_, RoundMode::CAST_RINT, axisH_);
@@ -690,11 +693,11 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
     } else {
         auto tok = tokenQue_.AllocTensor<XType>();
         DataCopyPad(tok, xGT_[tokenIndex * axisH_], tokenInParams, padParams);
-        if constexpr (IsSmoothScaleExist) {
-            auto tmp = scalesGT_.ReinterpretCast<uint8_t>();
-            DataCopyPad(tok[axisH_].template ReinterpretCast<uint8_t>(), tmp[tokenIndex * scaleInBytes_],
-                scaleInParams, padParams);
-        }
+        // if constexpr (IsSmoothScaleExist) {
+        //     auto tmp = scalesGT_.ReinterpretCast<uint8_t>();
+        //     DataCopyPad(tok[axisH_].template ReinterpretCast<uint8_t>(), tmp[tokenIndex * scaleInBytes_],
+        //         scaleInParams, padParams);
+        // }
         tokenQue_.EnQue(tok);
         tok = tokenQue_.DeQue<XType>();
         DataCopyPad(outTokenGT, tok, tokenOutParams);
@@ -1118,13 +1121,18 @@ template <TemplateMoeDistributeDispatchA5TypeClass>
 __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5TypeFunc>::Process()
 {
     if ASCEND_IS_AIV {
+        printf("RANK %d AIVID %d process\n", epRankId_, aivId_);
         if (isTokenMaskFlag_) {
             CalcTokenActiveMask();
+            printf("RANK %d AIVID %d CalcTokenActiveMask\n", epRankId_, aivId_);
         }
 
         TokenScatter();
+        printf("RANK %d AIVID %d TokenScatter\n", epRankId_, aivId_);
         Communication();
+        printf("RANK %d AIVID %d Communication\n", epRankId_, aivId_);
         TokenGather();
+        printf("RANK %d AIVID %d TokenGather\n", epRankId_, aivId_);
 
         if (aivId_ == 0) {
             hccl_.Finalize();

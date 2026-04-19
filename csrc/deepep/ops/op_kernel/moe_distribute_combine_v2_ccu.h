@@ -16,22 +16,24 @@
 #define MOE_DISTRIBUTE_COMBINE_A5_H
 
 #include "lib/hccl/hccl.h"
-#if ASC_DEVKIT_MAJOR >= 9
-#include "basic_api/kernel_basic_intf.h"
-#else
-#include "kernel_operator.h"
-#endif
+// #if ASC_DEVKIT_MAJOR >= 9
+// #include "basic_api/kernel_basic_intf.h"
+// #else
+// #include "kernel_operator.h"
+// #endif
 #include "adv_api/reduce/sum.h"
 #include "kernel_tiling/kernel_tiling.h"
-#include "../moe_distribute_combine_v2_tiling.h"
-#if __has_include("../../common/op_kernel/mc2_kernel_utils.h")
-#include "../../common/op_kernel/mc2_kernel_utils.h"
-#else
-#include "../../../common/op_kernel/mc2_kernel_utils.h"
-#endif
+#include "moe_distribute_combine_v2_tiling.h"
+#include "moe_distribute_base.h"
+#include "moe_distribute_v2_base.h"
+// #if __has_include("../../common/op_kernel/mc2_kernel_utils.h")
+// #include "../../common/op_kernel/mc2_kernel_utils.h"
+// #else
+// #include "../../../common/op_kernel/mc2_kernel_utils.h"
+// #endif
 
 
-namespace MoeDistributeCombineA5Impl {
+namespace MoeDistributeCombineA5CCUImpl {
 constexpr uint8_t BUFFER_NUM = 2;               // 多buf
 constexpr uint32_t UB_ALIGN = 32;                 // UB按32字节对齐
 constexpr uint32_t COUNT_OFFSET = 512;
@@ -56,6 +58,7 @@ __aicore__ inline T Align32(T x)
 }
 
 using namespace AscendC;
+using namespace MoeDistributeV2Base;
 #define TemplateMoeDistributeCombineA5TypeClass typename ExpandXType, typename ExpandIdxType
 #define TemplateMoeDistributeCombineA5TypeFunc ExpandXType, ExpandIdxType
 
@@ -102,16 +105,16 @@ private:
     TPipe *pipe_;
 
     GlobalTensor<ExpandXType> expandXGT_;
-    GlobalTensor<ExpandIdxType> expertIdsGT_;
-    GlobalTensor<ExpandIdxType> expandIdxGT_;
+    GlobalTensor<int32_t> expertIdsGT_;
+    GlobalTensor<int32_t> expandIdxGT_;
     GlobalTensor<float> expandScalesGT_;
     GlobalTensor<ExpandIdxType> epSendCountGT_;
     GlobalTensor<ExpandXType> expandOutGT_;
     GlobalTensor<bool> xActiveMaskGT_;
 
-    LocalTensor<int32_t> inputCountLT_;
-    LocalTensor<ExpandIdxType> expertIdsLT_;
-    LocalTensor<ExpandIdxType> expandIdxLT_;
+    LocalTensor<ExpandIdxType> inputCountLT_;
+    LocalTensor<int32_t> expertIdsLT_;
+    LocalTensor<int32_t> expandIdxLT_;
     LocalTensor<float> expandScalesLT_;
     LocalTensor<float> castLT_;
     LocalTensor<float> mulLT_;
@@ -239,8 +242,8 @@ __aicore__ inline void MoeDistributeCombineA5<TemplateMoeDistributeCombineA5Type
 
     expandXGT_.SetGlobalBuffer((__gm__ ExpandXType *)expandX);
     expertIdsGT_.SetGlobalBuffer((__gm__ int32_t *)expertIds);
-    expandIdxGT_.SetGlobalBuffer((__gm__ ExpandIdxType *)expandIdx);
-    epSendCountGT_.SetGlobalBuffer((__gm__ int32_t *)epSendCount);
+    expandIdxGT_.SetGlobalBuffer((__gm__ int32_t *)expandIdx);
+    epSendCountGT_.SetGlobalBuffer((__gm__ ExpandIdxType *)epSendCount);
     expandScalesGT_.SetGlobalBuffer((__gm__ float *)scales);
     expandOutGT_.SetGlobalBuffer((__gm__ ExpandXType *)XOut);
     xActiveMaskGT_.SetGlobalBuffer((__gm__ bool *)xActiveMask);
@@ -288,9 +291,9 @@ __aicore__ inline void MoeDistributeCombineA5<TemplateMoeDistributeCombineA5Type
 {
     pipe_->InitBuffer(tokenQue_, BUFFER_NUM, perTokenSize_);
     TBuf<> tmpBuf;
-    pipe_->InitBuffer(tmpBuf, localExpertNum_ * epWorldSize_ * sizeof(int32_t));
-    inputCountLT_ = tmpBuf.Get<int32_t>();
-    DataCopyParams copyParams = {1U, static_cast<uint16_t>(localExpertNum_ * epWorldSize_ * sizeof(int32_t)), 0U, 0U};
+    pipe_->InitBuffer(tmpBuf, localExpertNum_ * epWorldSize_ * sizeof(ExpandIdxType));
+    inputCountLT_ = tmpBuf.Get<ExpandIdxType>();
+    DataCopyParams copyParams = {1U, static_cast<uint16_t>(localExpertNum_ * epWorldSize_ * sizeof(ExpandIdxType)), 0U, 0U};
     DataCopyPadParams padParams = {false, 0, 0, 0};
     DataCopyPad(inputCountLT_, epSendCountGT_, copyParams, padParams);
 }
@@ -396,7 +399,7 @@ __aicore__ inline void MoeDistributeCombineA5<TemplateMoeDistributeCombineA5Type
     expandScalesLT_ = tmpBuf.Get<float>();
 
     DataCopyExtParams bskParams = {1U, static_cast<uint32_t>(bskNum_ * sizeof(uint32_t)), 0U, 0U, 0U};
-    DataCopyPadExtParams<ExpandIdxType> copyPadParams{false, 0U, 0U, 0U};
+    DataCopyPadExtParams<int32_t> copyPadParams{false, 0U, 0U, 0U};
     DataCopyPadExtParams<float> copyPadFloatParams{false, 0U, 0U, 0U};
 
     DataCopyPad(expandIdxLT_, expandIdxGT_, bskParams, copyPadParams);
@@ -598,9 +601,13 @@ template <TemplateMoeDistributeCombineA5TypeClass>
 __aicore__ inline void MoeDistributeCombineA5<TemplateMoeDistributeCombineA5TypeFunc>::Process()
 {
     if ASCEND_IS_AIV {
+        printf("RANK %d AIVID %d process\n", epRankId_, aivId_);
         PrepareSendData();
+        printf("RANK %d AIVID %d PrepareSendData\n", epRankId_, aivId_);
         Communication();
+        printf("RANK %d AIVID %d Communication\n", epRankId_, aivId_);
         Calculate();
+        printf("RANK %d AIVID %d Calculate\n", epRankId_, aivId_);
         if (aivId_ == 0) {
             hccl_.Finalize();
         }
