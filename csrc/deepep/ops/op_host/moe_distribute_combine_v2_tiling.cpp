@@ -19,6 +19,7 @@
 #include "../op_kernel/moe_distribute_combine_tiling.h"
 #include "../op_kernel/moe_distribute_combine_v2_tiling.h"
 #include "platform/platform_infos_def.h"
+#include "moe_distribute_dispatch_v2_ccu_tiling.h"
 
 using namespace AscendC;
 using namespace ge;
@@ -64,6 +65,7 @@ constexpr uint32_t ATTR_CONST_EXPERT_NUM_INDEX = 17;
 // tiling key
 constexpr uint32_t INT8_COMM_QUANT = 2U;
 constexpr uint64_t INIT_TILINGKEY = 10000;
+constexpr uint64_t TILING_KEY_CCU_TYPE = 60000;
 constexpr uint64_t TILING_KEY_A5_TYPE = 50000;
 constexpr uint64_t TILING_KEY_A3_TYPE = 30000;
 constexpr uint64_t TILING_KEY_A2_TYPE = 20000;
@@ -1174,13 +1176,15 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
 
     uint64_t tpWorldSize = static_cast<uint64_t>(tilingData->moeDistributeCombineV2Info.tpWorldSize);
     uint64_t tilingKey = TILING_KEY_A3_TYPE;
+    auto attrs = context->GetAttrs();
+    auto commAlgPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_COMM_ALG_INDEX));
     fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
     fe::PlatFormInfos &platformInfo = *platformInfoPtr;
     std::string socVersion;
     (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
 
     if (socVersion == "Ascend950") {
-        tilingKey = TILING_KEY_A5_TYPE;
+        tilingKey = commAlgPtr == "ccu" ? TILING_KEY_CCU_TYPE:TILING_KEY_A5_TYPE;
     } else if (socVersion == "Ascend910B") {
         tilingKey = TILING_KEY_A2_TYPE;
     }

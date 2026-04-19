@@ -58,8 +58,8 @@ constexpr uint32_t MX_QUANT = 4;
 
 
 #define TemplateMoeDistributeDispatchA5TypeClass \
-    typename XType, typename ExpandXOutType, int32_t QuantMode, bool IsSmoothScaleExist, bool IsNeedAllgather
-#define TemplateMoeDistributeDispatchA5TypeFunc XType, ExpandXOutType, QuantMode, IsSmoothScaleExist, IsNeedAllgather
+    typename XType, typename ExpandXOutType, bool StaticQuant, bool DynamicQuant, bool IsSmoothScaleExist, bool IsNeedAllgather
+#define TemplateMoeDistributeDispatchA5TypeFunc XType, ExpandXOutType, StaticQuant, DynamicQuant, IsSmoothScaleExist, IsNeedAllgather
 
 using namespace AscendC;
 template <TemplateMoeDistributeDispatchA5TypeClass>
@@ -327,29 +327,19 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
 template <TemplateMoeDistributeDispatchA5TypeClass>
 __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5TypeFunc>::QuantInit()
 {
-    if constexpr ((QuantMode == UNQUANT) && IsSmoothScaleExist) {
+    if constexpr ((StaticQuant == false) && (DynamicQuant == false) && IsSmoothScaleExist) {
         perTokenMergeSize_ += scaleInBytes_;
         perTokenInSize_ += scaleInBytes_;
         scaleOutBytes_ = scaleInBytes_;
-    } else if constexpr (QuantMode == MX_QUANT) {
-        perTokenMergeSize_ = Align256(axisH_) * sizeof(ExpandXOutType);
-        perTokenInSize_ = Align64(axisH_) * sizeof(XType);
-        perTokenMergeSize_ += Align2(Ceil32(axisH_));
-        scaleOutBytes_ = Align2(Ceil32(axisH_)) * sizeof(fp8_e8m0_t);
-    } else if constexpr (QuantMode == PERTOKEN_DYNAMIC_QUANT) {
+    } else if constexpr (DynamicQuant == true) {
         perTokenMergeSize_ += sizeof(float);
         scaleOutBytes_ = sizeof(float);
-    } else if constexpr (QuantMode == PERGROUP_DYNAMIC_QUANT) {
-        perTokenMergeSize_ = Align128(axisH_) * sizeof(ExpandXOutType);
-        perTokenInSize_ = Align128(axisH_) * sizeof(XType);
-        perTokenMergeSize_ += Ceil128(axisH_) * sizeof(float);
-        scaleOutBytes_ = Ceil128(axisH_) * sizeof(float);
     }
 
     perTokenCommSize_ = Align512<uint32_t>(perTokenMergeSize_);
     perRankDataSize_ = COUNT_OFFSET + perTokenCommSize_ * axisMaxBs_ * localExpertNum_;
 
-    if constexpr (QuantMode > UNQUANT) {
+    if constexpr ((StaticQuant == true) || (DynamicQuant == true)) {
         pipe_->InitBuffer(tokenInQue_, BUFFER_NUM, perTokenInSize_);
         pipe_->InitBuffer(tokenOutQue_, BUFFER_NUM, perTokenMergeSize_);
 
@@ -359,7 +349,7 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
         tokenF32LT_ = tmpBuf.Get<float>();
         pipe_->InitBuffer(tmpBuf, tokenB32Size);
         scalesLT_ = tmpBuf.Get<float>();
-        if constexpr (QuantMode == PERTOKEN_DYNAMIC_QUANT) {
+        if constexpr (DynamicQuant == true) {
             pipe_->InitBuffer(tmpBuf, UB_ALIGN);
             rowMaxLT_ = tmpBuf.Get<float>();
         }
@@ -539,14 +529,10 @@ template <TemplateMoeDistributeDispatchA5TypeClass>
 __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5TypeFunc>::QuantProcess(
     LocalTensor<ExpandXOutType>& outLocal, LocalTensor<XType>& inLocal, int32_t expertIndex)
 {
-    if constexpr (QuantMode == STATIC_QUANT) {
+    if constexpr (StaticQuant == true) {
         QuantStatic(outLocal, inLocal, expertIndex);
-    } else if constexpr (QuantMode == PERTOKEN_DYNAMIC_QUANT) {
+    } else if constexpr (DynamicQuant == true) {
         QuantDynamicPerToken(outLocal, inLocal, expertIndex);
-    } else if constexpr (QuantMode == MX_QUANT) {
-        QuantDynamicMxFp8(outLocal, inLocal);
-    } else if constexpr (QuantMode == PERGROUP_DYNAMIC_QUANT) {
-        QuantDynamicPerTile(outLocal, inLocal, expertIndex);
     }
 }
 
@@ -686,13 +672,10 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
             DataCopyPadParams& padParams, DataCopyParams& tokenOutParams, DataCopyParams& scaleInParams,
             uint32_t expertIndex)
 {
-    if constexpr (QuantMode > UNQUANT) {
+    if constexpr ((StaticQuant == true) || (DynamicQuant == true)) {
         auto tok = tokenInQue_.AllocTensor<XType>();
          // Initialize local tensor with zeros for mx/pertile quantations
         LocalTensor<uint8_t> singleByteTok = tok.template ReinterpretCast<uint8_t>();
-        if constexpr ((QuantMode == MX_QUANT) || (QuantMode == PERGROUP_DYNAMIC_QUANT)) {
-            Duplicate(singleByteTok, QUANT_PADDING_VALUE, Align128(axisH_) * sizeof(XType));
-        }
         SyncFunc<HardEvent::V_MTE2>();
         DataCopyPad(tok, xGT_[tokenIndex * axisH_], tokenInParams, padParams);
         tokenInQue_.EnQue(tok);
@@ -980,14 +963,8 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
     LocalTensor<ExpandXOutType> &quantTok, int32_t expertIndex)
 {
     DataCopyParams scaleOutParams = {1U, static_cast<uint16_t>(scaleOutBytes_), 0U, 0U};
-    if constexpr (((QuantMode > UNQUANT) && (QuantMode != STATIC_QUANT)) ||
-                  ((QuantMode == UNQUANT) && IsSmoothScaleExist)) {
+    if constexpr (StaticQuant == false) {
         auto scaleLT = quantTok[Align32<uint32_t>(axisH_)].template ReinterpretCast<uint8_t>();
-        if constexpr (QuantMode == MX_QUANT) {
-            scaleLT = quantTok[Align256<uint32_t>(axisH_)].template ReinterpretCast<uint8_t>();
-        } else if constexpr (QuantMode == PERGROUP_DYNAMIC_QUANT) {
-            scaleLT = quantTok[Align128<uint32_t>(axisH_)].template ReinterpretCast<uint8_t>();
-        }
         DataCopyPad(dynamicScaleGT_[currentTokenIndex * scaleOutBytes_], scaleLT, scaleOutParams);
     }
 }

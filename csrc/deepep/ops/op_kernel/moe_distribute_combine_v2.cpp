@@ -71,6 +71,12 @@ extern "C" __global__ __aicore__ void moe_distribute_combine_v2(
         op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
             elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, &pipe, &tilingData);
         op.Process();
+    } else if (TILING_KEY_IS(60000)) {  // A5 tp=1 IsInt8Quant=0
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
+        MoeDistributeCombineA5<DTYPE_EXPAND_X, DTYPE_X> op;
+        op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, xActiveMask, scales, sharedExpertX,
+            XOut, workspaceGM, &pipe, &tilingData);
+        op.Process();
     }
 #endif
 }

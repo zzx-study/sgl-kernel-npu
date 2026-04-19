@@ -79,6 +79,7 @@ constexpr int64_t BS_UPPER_BOUND = 512;
 
 // tilingkey
 constexpr uint64_t INIT_TILINGKEY = 30000;
+constexpr uint64_t TILING_KEY_CCU_TYPE = 60000;
 constexpr uint64_t TILING_KEY_A5_TYPE = 50000;
 constexpr uint64_t TILING_KEY_A3_TYPE = 30000;
 constexpr uint64_t TILING_KEY_A2_TYPE = 20000;
@@ -1201,12 +1202,14 @@ static ge::graphStatus MoeDistributeDispatchA3TilingFuncImpl(gert::TilingContext
     uint64_t tilingKey = TILING_KEY_A3_TYPE;
     fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
     fe::PlatFormInfos &platformInfo = *platformInfoPtr;
+    auto attrs = context->GetAttrs();
+    auto commAlgPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_COMM_ALG_INDEX));
     std::string socVersion;
     (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
     OP_LOGD(nodeName, "socVersion %s", socVersion.c_str());
 
     if (socVersion == "Ascend950") {
-        tilingKey = TILING_KEY_A5_TYPE;
+        tilingKey = commAlgPtr == "ccu" ? TILING_KEY_CCU_TYPE:TILING_KEY_A5_TYPE;
     } else if (socVersion == "Ascend910B") {
         tilingKey = TILING_KEY_A2_TYPE;
     }
