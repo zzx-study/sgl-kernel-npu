@@ -92,6 +92,9 @@ constexpr int64_t MAX_TP_WORLD_SIZE = 2;
 constexpr int64_t BS_UPPER_BOUND = 512;
 
 constexpr size_t SYSTEM_NEED_WORKSPACE = 16UL * 1024UL * 1024UL;
+constexpr int32_t BUFFER_NUM = 2;
+constexpr uint64_t COMM_ALIGN = 512U;
+constexpr int64_t COUNT_OFFSET = 512;
 constexpr size_t MASK_CALC_NEED_WORKSPACE = 10UL * 1024UL;
 constexpr int32_t HCCL_BUFFER_SIZE_DEFAULT = 200 * 1024 * 1024;  // Bytes
 constexpr uint32_t VERSION_2 = 2;
@@ -1057,6 +1060,23 @@ static ge::graphStatus SetWorkspace(gert::TilingContext *context, const char *no
     return ge::GRAPH_SUCCESS;
 }
 
+static ge::graphStatus CcuSetWorkSpace(gert::TilingContext *context, const MoeDistributeCombineV2TilingData &tilingData,
+                                    uint32_t localMoeExpertNum)
+{
+    const char *nodeName = context->GetNodeName();
+    size_t *workspace = context->GetWorkspaceSizes(1);
+    OP_TILING_CHECK(workspace == nullptr, OP_LOGE(nodeName, "get workspace failed"),
+                    return ge::GRAPH_FAILED);
+    uint64_t h = static_cast<uint64_t>(tilingData.moeDistributeCombineV2Info.h);
+    uint64_t epWorldSize = static_cast<uint64_t>(tilingData.moeDistributeCombineV2Info.epWorldSize);
+    uint64_t maxBs = static_cast<uint64_t>(tilingData.moeDistributeCombineV2Info.globalBs) / epWorldSize;
+    auto expandXDesc = context->GetInputDesc(EXPAND_X_INDEX);
+    workspace[0] = SYSTEM_NEED_WORKSPACE + epWorldSize * sizeof(uint64_t) * BUFFER_NUM * BUFFER_NUM +
+                   epWorldSize * (maxBs * Mc2TilingUtils::CeilAlign(h * ge::GetSizeByDataType(expandXDesc->GetDataType()), COMM_ALIGN) * localMoeExpertNum);
+    OP_LOGD(nodeName, "workspace[0] size is %ld", workspace[0]);
+    return ge::GRAPH_SUCCESS;
+}
+
 static void CalTilingKey(uint64_t &tilingKey, const uint64_t tpWorldSize, uint32_t commQuantMode)
 {
     if (tpWorldSize == TP_WORLD_SIZE_TWO) {
@@ -1086,6 +1106,25 @@ static void SetHCommCfg(const gert::TilingContext *context, MoeDistributeCombine
     mc2CcTilingConfig.SetOpType(opType2);
     mc2CcTilingConfig.SetAlgConfig(algConfigReduceScatterStr);
     mc2CcTilingConfig.GetTiling(tiling->mc2CcTiling2);
+}
+
+static void CcuSetCommTiling(const gert::TilingContext *context, MoeDistributeCombineV2TilingData &tilingData,
+                          const std::string groupEp, const std::string groupTp)
+{
+    const char *nodeName = context->GetNodeName();
+    OP_LOGD(nodeName, "MoeDistributeCombineV2 groupEp = %s, groupTp = %s", groupEp.c_str(), groupTp.c_str());
+    // Only HalfAllToAllV is set, as A5 does not support TP communication.
+    // Setting op types other than HalfAllToAllV will result in an error.
+    uint32_t opType = static_cast<uint32_t>(mc2tiling::AicpuComType::HCCL_CMD_HALFALLTOALLV);
+    std::string algConfigStr = "AlltoAll=level0:fullmesh;level1:pairwise";
+
+    AscendC::Mc2CcTilingConfig mc2CcTilingConfig(groupEp, opType, algConfigStr);
+    mc2CcTilingConfig.SetCommEngine(mc2tiling::A5_CCU_ENGINE);
+    mc2CcTilingConfig.GetTiling(tilingData.mc2InitTiling);
+    mc2CcTilingConfig.GetTiling(tilingData.mc2CcTiling1);
+
+    mc2CcTilingConfig.SetGroupName(groupTp);
+    mc2CcTilingConfig.GetTiling(tilingData.mc2CcTiling2);
 }
 
 static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext *context)
@@ -1168,11 +1207,6 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
         return ge::GRAPH_FAILED);
     tilingData->moeDistributeCombineV2Info.totalWinSize = maxWindowSize;
 
-    OP_TILING_CHECK(SetWorkspace(context, nodeName) != ge::GRAPH_SUCCESS,
-                    OP_LOGE(context->GetNodeName(), "Tiling set workspace Failed"), return ge::GRAPH_FAILED);
-
-    SetHCommCfg(context, tilingData, groupEp, groupTp);
-
     uint64_t tpWorldSize = static_cast<uint64_t>(tilingData->moeDistributeCombineV2Info.tpWorldSize);
     uint64_t tilingKey = TILING_KEY_A3_TYPE;
     auto attrs = context->GetAttrs();
@@ -1180,10 +1214,21 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
     fe::PlatFormInfos &platformInfo = *platformInfoPtr;
     std::string socVersion;
+    bool ccuFlag = strcmp(commAlgPtr, "ccu") == 0;
     (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
+    OP_LOGD(nodeName, "commAlgPtr %s", commAlgPtr);
+    if (ccuFlag) {
+        CcuSetCommTiling(context, *tilingData, groupEp, groupTp);
+        OP_TILING_CHECK(CcuSetWorkSpace(context, *tilingData, localMoeExpertNum) != ge::GRAPH_SUCCESS,
+                        OP_LOGE(context->GetNodeName(), "Tiling set workspace Failed"), return ge::GRAPH_FAILED);
+    } else {
+        SetHCommCfg(context, tilingData, groupEp, groupTp);
+        OP_TILING_CHECK(SetWorkspace(context, nodeName) != ge::GRAPH_SUCCESS,
+                        OP_LOGE(context->GetNodeName(), "Tiling set workspace Failed"), return ge::GRAPH_FAILED);
+    }
 
     if (socVersion == "Ascend950") {
-        tilingKey = commAlgPtr == "ccu" ? TILING_KEY_CCU_TYPE:TILING_KEY_A5_TYPE;
+        tilingKey = ccuFlag ? TILING_KEY_CCU_TYPE : TILING_KEY_A5_TYPE;
     } else if (socVersion == "Ascend910B") {
         tilingKey = TILING_KEY_A2_TYPE;
     }

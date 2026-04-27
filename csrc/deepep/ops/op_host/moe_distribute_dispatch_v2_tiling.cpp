@@ -108,6 +108,13 @@ constexpr uint64_t DOUBLE_DATA_BUFFER = 2UL;
 constexpr uint64_t MAX_OUT_DTYPE_SIZE = 2UL;
 constexpr uint64_t UB_ALIGN = 32UL;
 constexpr int64_t ELASTIC_METAINFO_OFFSET = 4;
+
+// CCU
+constexpr int32_t BUFFER_NUM = 2;
+constexpr uint64_t COMM_ALIGN = 512U;
+constexpr int64_t COUNT_OFFSET = 512;
+constexpr uint64_t STATIC_SCALE_DIM_0 = 1;
+constexpr uint64_t ONE_DIM_SCALE_COL_NUM = 1;
 }  // namespace
 
 namespace optiling {
@@ -356,8 +363,79 @@ static bool CheckTensorDataType(const gert::TilingContext *context, const char *
     return true;
 }
 
+inline ge::graphStatus CheckTwoDimScalesShape(const gert::TilingContext *context, const char *nodeName,
+    const MoeDistributeDispatchV2TilingData &tilingData, const int64_t scalesDim0, const int64_t scalesDim1)
+{
+    uint32_t sharedExpertRankNum = tilingData.moeDistributeDispatchV2Info.sharedExpertRankNum;
+    uint32_t sharedExpertNum = tilingData.moeDistributeDispatchV2Info.sharedExpertNum; 
+    int64_t moeExpertNum = static_cast<int64_t>(tilingData.moeDistributeDispatchV2Info.moeExpertNum);
+    const gert::StorageShape *xStorageShape = context->GetInputShape(X_INDEX);
+    OP_TILING_CHECK(xStorageShape == nullptr, OP_LOGE(nodeName, "xShape is null."), return ge::GRAPH_FAILED);
+    const int64_t xDim1 = xStorageShape->GetStorageShape().GetDim(1);
+    if (sharedExpertRankNum == 0U) {
+        OP_TILING_CHECK(scalesDim0 != moeExpertNum, OP_LOGE(nodeName,
+            "scales's dim0 not equal to moeExpertNum, scales's dim0=%ld, moeExpertNum=%ld.",
+            scalesDim0, moeExpertNum), return ge::GRAPH_FAILED);
+    } else {
+        OP_TILING_CHECK(scalesDim0 != (moeExpertNum + sharedExpertNum), OP_LOGE(nodeName,
+            "scales's dim0 not equal to moeExpertNum + sharedExpertNum, scales's dim0=%ld, (moeExpertNum + sharedExpertNum)=%ld.",
+            scalesDim0, moeExpertNum + sharedExpertNum), return ge::GRAPH_FAILED);
+    }
+    OP_TILING_CHECK(xDim1 != scalesDim1, OP_LOGE(nodeName, "scales's dim1 not equal to xShape's dim1, "
+        "xShape's dim1=%ld, scales's dim1=%ld.", xDim1, scalesDim1), return ge::GRAPH_FAILED);
+    return ge::GRAPH_SUCCESS;
+}
+
+inline ge::graphStatus CheckAndSetScalesInfo(const gert::TilingContext *context, const char *nodeName,
+    MoeDistributeDispatchV2TilingData &tilingData, bool isScales, const uint32_t quantMode)
+{
+    // 校验scales的维度
+    //bs and h have been set in CheckAttrs
+    uint32_t h = tilingData.moeDistributeDispatchV2Info.h;
+    uint32_t bs = tilingData.moeDistributeDispatchV2Info.bs;
+    uint64_t scalesRow = 0;
+    uint64_t scalesCol = 0;
+    uint32_t scalesTypeSize = 0;
+    uint64_t scalesCount = 0;
+    if (isScales) {
+        auto scalesDesc = context->GetOptionalInputDesc(SCALES_INDEX);
+        const gert::StorageShape *scalesStorageShape = context->GetOptionalInputShape(SCALES_INDEX);
+        OP_TILING_CHECK(scalesStorageShape == nullptr, OP_LOGE(nodeName, "scalesShape is null."), return ge::GRAPH_FAILED);
+        OP_TILING_CHECK(scalesDesc == nullptr, OP_LOGE(nodeName, "scalesDesc is null."), return ge::GRAPH_FAILED);
+        size_t scalesDimNum = scalesStorageShape->GetStorageShape().GetDimNum();
+        const int64_t scalesDim0 = scalesStorageShape->GetStorageShape().GetDim(0);
+        scalesRow = static_cast<uint64_t>(scalesDim0);  
+        scalesTypeSize = ge::GetSizeByDataType(scalesDesc->GetDataType());
+        if (scalesDimNum == ONE_DIM) {
+            // realMode 1 or 9
+            OP_TILING_CHECK((quantMode == STATIC_SCALES) 
+                && (scalesDim0 != h) && (scalesDim0 != STATIC_SCALE_DIM_0),
+                OP_LOGE(nodeName, "The expected scalesDim0 is %u or %lu in static quant, but got %ld", 
+                h, STATIC_SCALE_DIM_0, scalesDim0), return ge::GRAPH_FAILED);
+            scalesCol = ONE_DIM_SCALE_COL_NUM;
+            scalesCount = static_cast<uint64_t>(scalesDim0);
+        } else if (quantMode == NO_SCALES) {
+            OP_TILING_CHECK(scalesDim0 != bs,
+                OP_LOGE(nodeName, "The expected scalesDim0 is %u when scales is not null in non-quant, but got %ld", 
+                bs, scalesDim0), return ge::GRAPH_FAILED);
+        } else {
+            const int64_t scalesDim1 = scalesStorageShape->GetStorageShape().GetDim(1);
+            OP_TILING_CHECK(CheckTwoDimScalesShape(context, nodeName, tilingData, scalesDim0, scalesDim1) != ge::GRAPH_SUCCESS,
+                OP_LOGE(nodeName, "CheckTwoDimScalesShape failed."), return ge::GRAPH_FAILED);
+            scalesCol = static_cast<uint64_t>(scalesDim1);
+            scalesCount = static_cast<uint64_t>(scalesDim0 * scalesDim1);
+        }
+    }
+    tilingData.moeDistributeDispatchV2Info.scalesRow = scalesRow;
+    tilingData.moeDistributeDispatchV2Info.scalesCol = scalesCol;
+    tilingData.moeDistributeDispatchV2Info.scalesCount = scalesCount;
+    tilingData.moeDistributeDispatchV2Info.scalesTypeSize = scalesTypeSize;
+    return ge::GRAPH_SUCCESS;
+}
+
 static bool CheckTensorFormat(const gert::TilingContext *context, const char *nodeName, const bool isScales,
-                              const uint32_t quantMode, const bool isActiveMask, const uint32_t hasElasticInfo)
+                              const uint32_t quantMode, const bool isActiveMask, const uint32_t hasElasticInfo,
+                              MoeDistributeDispatchV2TilingData *tilingData)
 {
     auto xDesc = context->GetInputDesc(X_INDEX);
     OP_TILING_CHECK(xDesc == nullptr, OP_LOGE(nodeName, "xDesc is null."), return false);
@@ -370,13 +448,8 @@ static bool CheckTensorFormat(const gert::TilingContext *context, const char *no
         static_cast<ge::Format>(ge::GetPrimaryFormat(expertIdDesc->GetStorageFormat())) == ge::FORMAT_FRACTAL_NZ,
         OP_LOGE(nodeName, "expertId format is invalid."), return false);
 
-    if (isScales) {
-        auto scalesDesc = context->GetOptionalInputDesc(SCALES_INDEX);
-        OP_TILING_CHECK(scalesDesc == nullptr, OP_LOGE(nodeName, "scalesDesc is null."), return false);
-        OP_TILING_CHECK(
-            static_cast<ge::Format>(ge::GetPrimaryFormat(scalesDesc->GetStorageFormat())) == ge::FORMAT_FRACTAL_NZ,
-            OP_LOGE(nodeName, "scales format is invalid."), return false);
-    }
+    OP_TILING_CHECK(CheckAndSetScalesInfo(context, nodeName, *tilingData, isScales, quantMode) != ge::GRAPH_SUCCESS,
+        OP_LOGE(nodeName, "Check scales info failed."), return ge::GRAPH_FAILED);
 
     if (isActiveMask) {
         auto xActiveMaskDesc = context->GetOptionalInputDesc(X_ACTIVE_MASK_INDEX);
@@ -602,7 +675,7 @@ static ge::graphStatus CheckAndSetSpecialExpertInfo(const gert::TilingContext *c
         return ge::GRAPH_FAILED);
     OP_TILING_CHECK(
         (strlen(commAlgPtr) != 0) && (strcmp(commAlgPtr, "fullmesh_v1") != 0) &&
-            (strcmp(commAlgPtr, "fullmesh_v2") != 0),
+            (strcmp(commAlgPtr, "fullmesh_v2") != 0 && (strcmp(commAlgPtr, "ccu") != 0)),
         OP_LOGE(nodeName,
                 "Attr commAlg is invalid, current only support fullmesh_v1 and fullmesh_v2, but got commAlg = %s.",
                 commAlgPtr),
@@ -995,13 +1068,14 @@ static ge::graphStatus CheckTensorShape(const gert::TilingContext *context, cons
 
 static ge::graphStatus TilingCheckMoeDistributeDispatch(gert::TilingContext *context, const char *nodeName,
                                                         const bool isActiveMask, const bool isScales,
-                                                        const bool hasElasticInfo, const uint32_t quantMode)
+                                                        const bool hasElasticInfo, const uint32_t quantMode,
+                                                        MoeDistributeDispatchV2TilingData *tilingData)
 {
     OP_TILING_CHECK(!CheckTensorDim(context, nodeName, isScales, quantMode, isActiveMask, hasElasticInfo),
                     OP_LOGE(nodeName, "params shape is invalid."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(!CheckTensorDataType(context, nodeName, isScales, quantMode, isActiveMask, hasElasticInfo),
                     OP_LOGE(nodeName, "params dataType is invalid."), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(!CheckTensorFormat(context, nodeName, isScales, quantMode, isActiveMask, hasElasticInfo),
+    OP_TILING_CHECK(!CheckTensorFormat(context, nodeName, isScales, quantMode, isActiveMask, hasElasticInfo, tilingData),
                     OP_LOGE(nodeName, "params format is invalid."), return ge::GRAPH_FAILED);
 
     return ge::GRAPH_SUCCESS;
@@ -1047,6 +1121,26 @@ static void SetHcommCfg(const gert::TilingContext *context, MoeDistributeDispatc
     mc2CcTilingConfig.SetOpType(opType2);
     mc2CcTilingConfig.SetAlgConfig(algConfigAllGatherStr);
     mc2CcTilingConfig.GetTiling(tiling->mc2CcTiling2);
+}
+
+static ge::graphStatus CcuSetCommTiling(const gert::TilingContext *context,
+    MoeDistributeDispatchV2TilingData &tilingData, std::string &groupEp, std::string &groupTp)
+{
+    const char *nodeName = context->GetNodeName();
+    OP_LOGD(nodeName, "MoeDistributeDispatchV2 groupEp = %s, groupTp = %s", groupEp.c_str(), groupTp.c_str());
+    // Only HalfAllToAllV is set, as A5 does not support TP communication.
+    // Setting op types other than HalfAllToAllV will result in an error.
+    uint32_t opType = static_cast<uint32_t>(mc2tiling::AicpuComType::HCCL_CMD_HALFALLTOALLV);
+    std::string algConfigStr = "AlltoAll=level0:fullmesh;level1:pairwise";
+
+    AscendC::Mc2CcTilingConfig mc2CcTilingConfig(groupEp, opType, algConfigStr);
+    mc2CcTilingConfig.SetCommEngine(mc2tiling::A5_CCU_ENGINE);
+    mc2CcTilingConfig.GetTiling(tilingData.mc2InitTiling);
+    mc2CcTilingConfig.GetTiling(tilingData.mc2CcTiling1);
+
+    mc2CcTilingConfig.SetGroupName(groupTp);
+    mc2CcTilingConfig.GetTiling(tilingData.mc2CcTiling2);
+    return ge::GRAPH_SUCCESS;
 }
 
 static ge::graphStatus CheckWinSize(MoeDistributeDispatchV2TilingData &tilingData, const char *nodeName,
@@ -1096,6 +1190,33 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext *context, const char *no
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
     uint32_t aivNum = ascendcPlatform.GetCoreNumAiv();
     workSpaces[0] = SYSTEM_NEED_WORKSPACE + static_cast<size_t>(WORKSPACE_ELEMENT_OFFSET * aivNum * aivNum);
+    return ge::GRAPH_SUCCESS;
+}
+
+static ge::graphStatus CcuSetWorkSpace(gert::TilingContext *context,
+                                    MoeDistributeDispatchV2TilingData &tilingData, uint32_t localMoeExpertNum)
+{
+    const char *nodeName = context->GetNodeName();
+    size_t *workSpaces = context->GetWorkspaceSizes(1);
+    OP_TILING_CHECK(workSpaces == nullptr, OP_LOGE(nodeName, "workSpaces is nullptr."),
+        return ge::GRAPH_FAILED);
+    uint64_t epWorldSize = static_cast<uint64_t>(tilingData.moeDistributeDispatchV2Info.epWorldSize);
+    uint64_t maxBs = static_cast<uint64_t>(tilingData.moeDistributeDispatchV2Info.globalBs) / epWorldSize;
+    uint64_t alignCnt =  UB_ALIGN;
+    uint64_t alignedH = Mc2TilingUtils::CeilAlign(static_cast<uint64_t>(tilingData.moeDistributeDispatchV2Info.h), alignCnt);
+
+    auto xDesc = context->GetInputDesc(X_INDEX);
+    workSpaces[0] =
+        SYSTEM_NEED_WORKSPACE + epWorldSize * sizeof(uint64_t) * BUFFER_NUM * BUFFER_NUM +
+        epWorldSize *
+            (COUNT_OFFSET + maxBs * Mc2TilingUtils::CeilAlign(alignedH * GetSizeByDataType(xDesc->GetDataType()), COMM_ALIGN) *
+                                localMoeExpertNum);
+    OP_LOGD(nodeName, "SYSTEM_NEED_WORKSPACE=%u, epWorldSize=%u, BUFFER_NUM=%lu, COUNT_OFFSET=%u, cacle=%lu localMoeExpertNum=%u",
+        SYSTEM_NEED_WORKSPACE, epWorldSize, BUFFER_NUM, COUNT_OFFSET,
+        maxBs * Mc2TilingUtils::CeilAlign(alignedH * GetSizeByDataType(xDesc->GetDataType()), COMM_ALIGN),
+        localMoeExpertNum);
+    OP_LOGD(nodeName, "workSpaces=%zu, GetWorkspaceSizes=%lu", workSpaces[0], *context->GetWorkspaceSizes(1));
+    tilingData.moeDistributeDispatchV2Info.totalWinSize = Mc2TilingUtils::GetMaxWindowSize();
     return ge::GRAPH_SUCCESS;
 }
 
@@ -1172,7 +1293,7 @@ static ge::graphStatus MoeDistributeDispatchA3TilingFuncImpl(gert::TilingContext
 
     // 检查输入输出的dim、format、dataType
     OP_TILING_CHECK(TilingCheckMoeDistributeDispatch(context, nodeName, isActiveMask, isScales, hasElasticInfo,
-                                                     quantMode) != ge::GRAPH_SUCCESS,
+                                                     quantMode, tilingData) != ge::GRAPH_SUCCESS,
                     OP_LOGE(nodeName, "Tiling check param failed."), return ge::GRAPH_FAILED);
 
     // 检查属性的取值是否合法
@@ -1190,26 +1311,37 @@ static ge::graphStatus MoeDistributeDispatchA3TilingFuncImpl(gert::TilingContext
                                      hasElasticInfo, static_cast<int64_t>(localMoeExpertNum)) != ge::GRAPH_SUCCESS,
                     OP_LOGE(nodeName, "Check tensor shape failed."), return ge::GRAPH_FAILED);
 
-    // 校验win区大小
-    OP_TILING_CHECK(CheckWinSize(*tilingData, nodeName, isSetCommAlg, localMoeExpertNum) != ge::GRAPH_SUCCESS,
-                    OP_LOGE(nodeName, "Tiling check window size failed."), return ge::GRAPH_FAILED);
-
-    OP_TILING_CHECK(SetWorkSpace(context, nodeName) != ge::GRAPH_SUCCESS,
-                    OP_LOGE(nodeName, "Tiling set workspace failed."), return ge::GRAPH_FAILED);
-
-    SetHcommCfg(context, tilingData);
-
     uint64_t tilingKey = TILING_KEY_A3_TYPE;
     fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
     fe::PlatFormInfos &platformInfo = *platformInfoPtr;
     auto attrs = context->GetAttrs();
     auto commAlgPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_COMM_ALG_INDEX));
     std::string socVersion;
+    bool ccuFlag = strcmp(commAlgPtr, "ccu") == 0;
     (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
     OP_LOGD(nodeName, "socVersion %s", socVersion.c_str());
-
+    OP_LOGD(nodeName, "commAlgPtr %s", commAlgPtr);
+    if (ccuFlag) {
+        std::string groupEp = "", groupTp = "";
+        auto groupEpPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_EP_INDEX));
+        auto groupTpPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_TP_INDEX));
+        groupEp = std::string(groupEpPtr);
+        groupTp = std::string(groupTpPtr);
+        OP_TILING_CHECK(CcuSetWorkSpace(context, *tilingData, localMoeExpertNum) != ge::GRAPH_SUCCESS,
+                        OP_LOGE(nodeName, "Tiling set workspace failed."), return ge::GRAPH_FAILED);
+        OP_TILING_CHECK(CcuSetCommTiling(context, *tilingData, groupEp, groupTp) != ge::GRAPH_SUCCESS,
+                        OP_LOGE(nodeName, "Tiling set workspace failed."), return ge::GRAPH_FAILED);
+    } else {
+        SetHcommCfg(context, tilingData);
+        // 校验win区大小
+        OP_TILING_CHECK(CheckWinSize(*tilingData, nodeName, isSetCommAlg, localMoeExpertNum) != ge::GRAPH_SUCCESS,
+                        OP_LOGE(nodeName, "Tiling check window size failed."), return ge::GRAPH_FAILED);
+        OP_TILING_CHECK(SetWorkSpace(context, nodeName) != ge::GRAPH_SUCCESS,
+                        OP_LOGE(nodeName, "Tiling set workspace failed."), return ge::GRAPH_FAILED);
+    }
+    OP_LOGD(nodeName, "workSpace %zu", *context->GetWorkspaceSizes(1));
     if (socVersion == "Ascend950") {
-        tilingKey = commAlgPtr == "ccu" ? TILING_KEY_CCU_TYPE:TILING_KEY_A5_TYPE;
+        tilingKey = ccuFlag ? TILING_KEY_CCU_TYPE : TILING_KEY_A5_TYPE;
     } else if (socVersion == "Ascend910B") {
         tilingKey = TILING_KEY_A2_TYPE;
     }

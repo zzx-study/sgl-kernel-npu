@@ -35,7 +35,7 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
     EP_HOST_ASSERT(0 <= rank and rank < num_ranks);
 
     if (moe_all_to_all_group_name.empty()) {
-        // char *ranktable_file = std::getenv("RANK_TABLE_FILE");
+        // char *ranktable_file = std::getenv("HCCL_TOPO_FILE_PATH");
         // EP_HOST_ASSERT(ranktable_file != nullptr)
         // ACL_CHECK(aclrtGetDevice(&device_id));
 
@@ -1015,7 +1015,6 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         EP_HOST_ASSERT(isLayered == false);
         active_mask = (new_topk_idx >= 0).to(torch::kBool);
     }
-    printf("RANK %d DEEPEP_CPP dispatch low-latency entry");
     EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, new_x, new_topk_idx,
                  scales,        // smooth scales,
                  active_mask,   // active_mask
@@ -1121,7 +1120,6 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
         EP_HOST_ASSERT(isLayered == false);
         x_active_mask = (new_topk_idx >= 0).to(torch::kBool);
     }
-    printf("RANK %d DEEPEP_CPP combine low-latency entry");
     EXEC_NPU_CMD(aclnnMoeDistributeCombineV2, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
                  tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
                  shared_expert_x, hcom_ep_name, num_ranks, rank, num_experts, hcom_tp_name, tp_world_size, tp_rankId,

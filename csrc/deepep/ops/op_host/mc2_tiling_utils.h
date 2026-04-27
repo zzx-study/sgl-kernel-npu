@@ -39,6 +39,14 @@ public:
         OP_LOGI("", "Get maxWindowSize is %lu", maxWindowSize);
         return maxWindowSize;
     }
+
+    static int64_t CeilAlign(int64_t num1, int64_t num2)
+    {
+        if (num2 == 0) {
+            return 0;
+        }
+        return (num1 + num2 - 1) / num2 * num2;
+    }
 };
 
 namespace mc2tiling {
@@ -92,6 +100,23 @@ constexpr double CUBE_UTIL_THRESH = 0.85;
 constexpr uint32_t AICPU_NUM_BLOCKS_A2 = 6U;
 
 constexpr auto DEFAULT_KEY_FOR_FITTING_MAP = "0_0";
+
+enum class AicpuComType {
+  HCCL_CMD_INVALID = 0,
+  HCCL_CMD_BROADCAST = 1,
+  HCCL_CMD_ALLREDUCE,
+  HCCL_CMD_REDUCE,
+  HCCL_CMD_SEND,
+  HCCL_CMD_RECEIVE,
+  HCCL_CMD_ALLGATHER,
+  HCCL_CMD_REDUCE_SCATTER,
+  HCCL_CMD_ALLTOALLV,
+  HCCL_CMD_ALLTOALLVC,
+  HCCL_CMD_ALLTOALL,
+  HCCL_CMD_GATHER,
+  HCCL_CMD_HALFALLTOALLV = 20,
+  HCCL_CMD_MAX
+};
 
 inline std::string GetSocVersion(const gert::TilingContext *context)
 {

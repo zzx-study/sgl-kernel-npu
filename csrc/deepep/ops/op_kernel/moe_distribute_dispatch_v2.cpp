@@ -60,7 +60,7 @@ extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(GM_ADDR x, GM_A
         return;
     }
     if (TILING_KEY_IS(60000)) {
-        printf("OP_KERNEL MoeDistributeDispatchA5 60000 entry\n");
+        // printf("OP_KERNEL MoeDistributeDispatchA5 60000 entry\n");
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
         MoeDistributeDispatchA5<DTYPE_X, DTYPE_EXPAND_X, false, false, false, false> op;
         op.Init(x, expertIds, scales, expandXOut, xActiveMask, dynamicScalesOut, assistInfoOut,
@@ -126,7 +126,7 @@ extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(GM_ADDR x, GM_A
         return;
     }
     if (TILING_KEY_IS(60002)) {
-        printf("OP_KERNEL MoeDistributeDispatchA5 60002 entry\n");
+        //printf("OP_KERNEL MoeDistributeDispatchA5 60002 entry\n");
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
         MoeDistributeDispatchA5<DTYPE_X, DTYPE_EXPAND_X, false, true, false, false> op;
         op.Init(x, expertIds, scales, expandXOut, xActiveMask, dynamicScalesOut, assistInfoOut,

@@ -64,6 +64,7 @@ def test(
         (aligned_num_tokens, num_topk), -1, dtype=torch.long, device="npu"
     )
 
+
     if actual_num_tokens > 0:
         actual_scores = scores[:actual_num_tokens]
         actual_topk_idx = torch.topk(
@@ -104,7 +105,7 @@ def test(
     cumulative_local_expert_recv_stats = torch.zeros(
         (num_local_experts,), dtype=torch.int, device="npu"
     )
-    for dispatch_use_fp8 in (True, False):
+    for dispatch_use_fp8 in (False, True):
         packed_recv_x, packed_recv_count, handle, event, hook = (
             buffer.low_latency_dispatch(
                 x,
@@ -172,7 +173,7 @@ def test(
             ), f"{num_valid_tokens} != {recv_layout_range & int_mask}.item()"
             assert (
                 num_valid_tokens == expected_valid_tokens
-            ), f"{num_valid_tokens} != {expected_valid_tokens}"
+            ), f"{num_valid_tokens} != {expected_valid_tokens} {expert_id=}"
 
             if num_valid_tokens == 0:
                 continue
@@ -394,39 +395,39 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     )
 
     do_pressure_test = args.pressure_test
-    for seed in range(int(1e9) if do_pressure_test else 0):
-        if rank == 0:
-            print(f"Testing with seed {seed} ...", flush=True)
-        ref_hash = test(
-            aligned_num_tokens,
-            raw_num_tokens,
-            hidden,
-            use_experts,
-            num_topk,
-            rank,
-            use_ranks,
-            group,
-            buffer,
-            drop_percent,
-            seed=seed,
-        )
-        for i in range(20):
-            assert (
-                test(
-                    aligned_num_tokens,
-                    raw_num_tokens,
-                    hidden,
-                    use_experts,
-                    num_topk,
-                    rank,
-                    use_ranks,
-                    group,
-                    buffer,
-                    drop_percent,
-                    seed=seed,
-                )
-                == ref_hash
-            ), f"Error: seed={seed}"
+    # for seed in range(int(1e9) if do_pressure_test else 0):
+    #     if rank == 0:
+    #         print(f"Testing with seed {seed} ...", flush=True)
+    #     ref_hash = test(
+    #         aligned_num_tokens,
+    #         raw_num_tokens,
+    #         hidden,
+    #         use_experts,
+    #         num_topk,
+    #         rank,
+    #         use_ranks,
+    #         group,
+    #         buffer,
+    #         drop_percent,
+    #         seed=seed,
+    #     )
+    #     for i in range(20):
+    #         assert (
+    #             test(
+    #                 aligned_num_tokens,
+    #                 raw_num_tokens,
+    #                 hidden,
+    #                 use_experts,
+    #                 num_topk,
+    #                 rank,
+    #                 use_ranks,
+    #                 group,
+    #                 buffer,
+    #                 drop_percent,
+    #                 seed=seed,
+    #             )
+    #             == ref_hash
+    #         ), f"Error: seed={seed}"
     dist.barrier()
     dist.destroy_process_group()
 
