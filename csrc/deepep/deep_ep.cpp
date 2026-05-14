@@ -35,12 +35,17 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
     EP_HOST_ASSERT(0 <= rank and rank < num_ranks);
 
     if (moe_all_to_all_group_name.empty()) {
-        char *ranktable_file = std::getenv("RANK_TABLE_FILE");
-        EP_HOST_ASSERT(ranktable_file != nullptr)
-        ACL_CHECK(aclrtGetDevice(&device_id));
+        // char *ranktable_file = std::getenv("HCCL_TOPO_FILE_PATH");
+        // EP_HOST_ASSERT(ranktable_file != nullptr)
+        // ACL_CHECK(aclrtGetDevice(&device_id));
 
-        // ep domain
-        HCCL_CHECK(HcclCommInitClusterInfo(ranktable_file, device_id, &ep_comm));
+        // // ep domain
+        // HCCL_CHECK(HcclCommInitClusterInfo(ranktable_file, device_id, &ep_comm));
+        HcclRootInfo rootInfo;
+        HcclGetRootInfo(&rootInfo);
+        ACL_CHECK(aclrtGetDevice(&device_id));
+        // 初始化通信域
+        HcclCommInitRootInfo(num_ranks, &rootInfo, device_id, &ep_comm);
     } else {
         EP_HOST_ASSERT(moe_all_to_all_group_name.size() < HCOMM_NAME_LEN);
     }
@@ -316,6 +321,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int expert_token_nums_type = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
     EP_HOST_ASSERT(expert_token_nums_type == 1 or expert_token_nums_type == 0);
 
+    // printf("=================DEEPEP intranode_dispatch start\n");
     EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, send_count, num_tokens,
                  hcom_ep_name,  // commGroup
                  num_ranks,     // rankSize
@@ -324,7 +330,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, total_recv_token,
                  max_bs, recv_tokens_per_expert);
     auto send_token_idx_small = this->send_token_idx_small;
-
+    // printf("=================DEEPEP intranode_dispatch end\n");
     real_max_bs = static_cast<int64_t>(std::max(max_bs.item<int>(), static_cast<int>(num_worst_tokens)));
 
     // dispatch算子内部按照 min(per_round_tokens, real_max_bs)来预留显存
@@ -942,14 +948,14 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
 
     auto num_tokens = static_cast<int>(new_x.size(0)), hidden = static_cast<int>(new_x.size(1));
     auto num_scales = hidden / 128, num_topk = static_cast<int>(new_topk_idx.size(1));
-    auto num_local_experts = num_experts / (num_ranks - shared_expert_rank_num);
+    int32_t num_local_experts = num_experts / (num_ranks - shared_expert_rank_num);
     int64_t global_bs = num_max_dispatch_tokens_per_rank * num_ranks;
     auto num_max_tokens = 0;
     if (rank < shared_expert_rank_num) {
         num_max_tokens = global_bs / shared_expert_rank_num;
         num_local_experts = 1;
     } else {  // moe expert
-        num_max_tokens = global_bs * num_local_experts;
+        num_max_tokens = global_bs * std::min(num_topk, num_local_experts);
     }
     auto max_size = std::max(num_tokens * num_topk, num_max_tokens * 128);
 
@@ -973,6 +979,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     int64_t tp_rank = 0;
     int64_t expert_shard_type = 0;
     int outType = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
+    int isCcu = get_value_from_env("MOE_ENABLE_CCU", 0);
     char *comm_alg;
     int64_t expert_token_nums_type = outType;
 
@@ -1001,6 +1008,8 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
 
     if (soc_version == op::SocVersion::ASCEND910B) {
         comm_alg = "fullmesh";
+    } else if (isCcu == 1) {
+        comm_alg = "ccu";
     } else {
         comm_alg = "fullmesh_v1";
     }
@@ -1009,7 +1018,6 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         EP_HOST_ASSERT(isLayered == false);
         active_mask = (new_topk_idx >= 0).to(torch::kBool);
     }
-
     EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, new_x, new_topk_idx,
                  scales,        // smooth scales,
                  active_mask,   // active_mask
@@ -1081,6 +1089,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     at::Tensor tp_send_counts = at::empty({1}, at::dtype(at::kInt).device(device));
     at::Tensor x_active_mask, activation_scale, weight_scale, group_list, expand_scales;
     int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
+    int isCcu = get_value_from_env("MOE_ENABLE_CCU", 0);
     int64_t tp_world_size = 1;
     int64_t tp_rankId = 0;
     int64_t expert_shared_type = 0;
@@ -1107,6 +1116,8 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
 
     if (soc_version == op::SocVersion::ASCEND910B) {
         comm_alg = "fullmesh";
+    } else if (isCcu == 1) {
+        comm_alg = "ccu";
     } else {
         comm_alg = "fullmesh_v1";
     }
@@ -1115,7 +1126,6 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
         EP_HOST_ASSERT(isLayered == false);
         x_active_mask = (new_topk_idx >= 0).to(torch::kBool);
     }
-
     EXEC_NPU_CMD(aclnnMoeDistributeCombineV2, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
                  tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
                  shared_expert_x, hcom_ep_name, num_ranks, rank, num_experts, hcom_tp_name, tp_world_size, tp_rankId,
