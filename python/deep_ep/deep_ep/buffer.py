@@ -8,7 +8,8 @@ import torch.distributed as dist
 import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
-from .alltoall import alltoall_combine, alltoall_dispatch, alltoall_get_dispatch_layout
+from .alltoall import alltoall_combine, alltoall_dispatch, alltoall_get_dispatch_layout, alltoall_low_latency_combine, alltoall_low_latency_dispatch
+
 from .utils import EventOverlap, log_parameters
 
 
@@ -753,6 +754,22 @@ class Buffer:
             event: the event after executing the kernel (valid only if `async_finish` is set).
             hook: the receiving hook function (valid only if `return_recv_hook` is set).
         """
+        # All-to-all mode for low-latency
+        if self.alltoall_mode:
+            return alltoall_low_latency_dispatch(
+                self,
+                x,
+                topk_idx,
+                num_max_dispatch_tokens_per_rank,
+                num_experts,
+                cumulative_local_expert_recv_stats,
+                use_fp8,
+                round_scale,
+                use_ue8m0,
+                async_finish,
+                return_recv_hook,
+            )
+
         topk_ids = topk_idx.int()
         (
             packed_recv_x,
@@ -837,6 +854,20 @@ class Buffer:
             event: the event after executing the kernel (valid only if `async_finish` is set).
             hook: the receiving hook function (valid only if `return_recv_hook` is set).
         """
+        # All-to-all mode for low-latency
+        if self.alltoall_mode:
+            return alltoall_low_latency_combine(
+                self,
+                x,
+                topk_idx,
+                topk_weights,
+                handle,
+                zero_copy,
+                async_finish,
+                return_recv_hook,
+                out,
+            )
+
         topk_ids = topk_idx.int()
         (
             src_info,

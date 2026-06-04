@@ -237,6 +237,9 @@ def test(
         flush=True,
     )
 
+    if int(os.getenv("DEEP_USE_ALLTOALL_MODE", 0)) == 1:
+        return hash_value
+
     # Separate profiling
     # return_recv_hook=True is not supported now
     for return_recv_hook in (False,):

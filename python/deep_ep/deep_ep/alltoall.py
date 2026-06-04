@@ -11,10 +11,8 @@ COMM_STREAM = None
 
 def async_all_to_all(input_, output_split_sizes, input_split_sizes, group, event=None):
     if output_split_sizes is None:
-        # Equal split (all2all)
         a2a_out = torch.empty_like(input_)
     else:
-        # Unequal split (all2all-v)
         a2a_out = input_.new_empty(
             size=[sum(output_split_sizes)] + list(input_.size()[1:]),
             dtype=input_.dtype,
@@ -22,7 +20,6 @@ def async_all_to_all(input_, output_split_sizes, input_split_sizes, group, event
         )
 
     if event:
-        # multi stream wait event
         global COMM_STREAM
         if COMM_STREAM is None:
             COMM_STREAM = torch_npu.npu.Stream(device=torch.npu.current_device())
@@ -258,3 +255,326 @@ def alltoall_combine(buffer, x, handle):
     output = output.view(hidden_shape)
 
     return output, None, EventOverlap()
+
+
+def alltoall_low_latency_dispatch(
+    buffer,
+    x,
+    topk_idx,
+    num_max_dispatch_tokens_per_rank,
+    num_experts,
+    cumulative_local_expert_recv_stats=None,
+    use_fp8=True,
+    round_scale=False,
+    use_ue8m0=False,
+    async_finish=False,
+    return_recv_hook=False,
+):
+    group = buffer.group
+    group_size = buffer.group_size
+    num_local_experts = num_experts // group_size
+    ep_rank = buffer.rank
+    device = x.device
+    hidden = x.size(1)
+    num_tokens = x.size(0)
+    num_topk = topk_idx.size(1)
+    
+    topk_idx_int = topk_idx.to(torch.int32)
+    
+    num_local_tokens_per_expert = torch.histc(
+        topk_idx_int, bins=num_experts, min=0, max=num_experts
+    )
+    
+    input_splits = (
+        num_local_tokens_per_expert.reshape(group_size, num_local_experts).sum(axis=1)
+    )
+    
+    num_global_tokens_per_expert = _gather_along_first_dim(
+        num_local_tokens_per_expert, group
+    ).reshape(group_size, num_experts)
+    
+    local_expert_indices_offset = ep_rank * num_local_experts
+    local_expert_indices = [
+        local_expert_indices_offset + i for i in range(num_local_experts)
+    ]
+    
+    num_global_tokens_per_local_expert = num_global_tokens_per_expert[
+        :, local_expert_indices[0] : local_expert_indices[-1] + 1
+    ]
+    
+    output_splits = (
+        num_global_tokens_per_local_expert.sum(axis=-1)
+    )
+    
+    expert_ids_per_ep_rank = (
+        torch.arange(
+            num_experts,
+            dtype=torch.int32,
+            device=device,
+        )
+        % num_local_experts
+    )
+    
+    num_global_tokens_per_local_expert_ravel = (
+        num_global_tokens_per_local_expert.ravel()
+    )
+    if num_local_experts > 1:
+        global_tokens_indices = torch.repeat_interleave(
+            expert_ids_per_ep_rank,
+            num_global_tokens_per_local_expert_ravel,
+        )
+    else:
+        global_tokens_indices = None
+    
+    permutated_tokens, reversed_local_mapping = torch_npu.npu_moe_token_permute(
+        tokens=x,
+        indices=topk_idx_int,
+        num_out_tokens=topk_idx_int.numel(),
+    )
+    
+    if use_fp8:
+        permutated_tokens, dynamic_scale = torch_npu.npu_dynamic_quant(
+            permutated_tokens
+        )
+        _, dynamic_scale_after_all2all, scale_handle = async_all_to_all(
+            dynamic_scale, output_splits, input_splits, buffer.group
+        )
+        scale_handle.wait()
+        dynamic_scale.untyped_storage().resize_(0)
+    
+    _, global_input_tokens, handle = async_all_to_all(
+        permutated_tokens,
+        output_splits,
+        input_splits,
+        buffer.group,
+    )
+    handle.wait()
+    permutated_tokens.untyped_storage().resize_(0)
+    
+    if num_local_experts > 1 and global_tokens_indices is not None:
+        if use_fp8:
+            dynamic_scale_after_all2all_permuted, _ = torch_npu.npu_moe_token_permute(
+                dynamic_scale_after_all2all.unsqueeze(-1), global_tokens_indices
+            )
+            dynamic_scale_after_all2all_permuted = dynamic_scale_after_all2all_permuted.squeeze(-1)
+        
+        dispatch_out, reversed_global_mapping = torch_npu.npu_moe_token_permute(
+            global_input_tokens, global_tokens_indices
+        )
+    else:
+        dispatch_out = global_input_tokens
+        reversed_global_mapping = None
+        if use_fp8:
+            dynamic_scale_after_all2all_permuted = dynamic_scale_after_all2all
+    
+    packed_recv_count = num_global_tokens_per_local_expert.sum(axis=0).to(torch.int64)
+    
+    total_recv_tokens = dispatch_out.size(0)
+    
+    temp = num_max_dispatch_tokens_per_rank
+    total_size = num_local_experts * temp
+    
+    packed_recv_x = torch.zeros(
+        [total_size, hidden],
+        dtype=torch.int8 if use_fp8 else torch.bfloat16,
+        device=device,
+    )
+    
+    packed_recv_x_scales = None
+    if use_fp8:
+        packed_recv_x_scales = torch.zeros(
+            [total_size],
+            dtype=torch.float,
+            device=device,
+        )
+    
+    expert_offsets = torch.zeros([num_local_experts + 1], dtype=torch.int64, device=device)
+    for i in range(num_local_experts):
+        expert_offsets[i + 1] = expert_offsets[i] + packed_recv_count[i]
+    
+    for expert_idx in range(num_local_experts):
+        start_offset = expert_offsets[expert_idx].item()
+        end_offset = expert_offsets[expert_idx + 1].item()
+        expert_recv_count = end_offset - start_offset
+        
+        if expert_recv_count > 0:
+            expert_slice = dispatch_out[start_offset:end_offset]
+            dest_start = int(expert_idx * temp)
+            dest_end = dest_start + expert_recv_count
+            packed_recv_x[dest_start:dest_end, :] = expert_slice
+            
+            if use_fp8:
+                scale_slice = dynamic_scale_after_all2all_permuted[start_offset:end_offset]
+                packed_recv_x_scales[dest_start:dest_end] = scale_slice
+    
+    packed_recv_src_info = torch.zeros(
+        [num_max_dispatch_tokens_per_rank * group_size * 3],
+        dtype=torch.int32,
+        device=device,
+    )
+    
+    layout_range_size = num_local_experts * group_size if num_local_experts > 0 else group_size
+    layout_range = torch.zeros(
+        [layout_range_size],
+        dtype=torch.int32,
+        device=device,
+    )
+    
+    cumulative_count = 0
+    for i in range(num_local_experts):
+        recv_count = packed_recv_count[i].item()
+        cumulative_count += recv_count
+        layout_range[(i + 1) * group_size - 1] = cumulative_count
+    
+    packed_recv_layout_range = layout_range
+    
+    handle_tuple = (
+        packed_recv_src_info,
+        packed_recv_layout_range,
+        num_max_dispatch_tokens_per_rank,
+        hidden,
+        num_experts,
+        packed_recv_count,
+    )
+    
+    combine_handle_data = {
+        "input_splits": input_splits,
+        "output_splits": output_splits,
+        "topk_idx": topk_idx,
+        "topk_weights": None,
+        "reversed_local_mapping": reversed_local_mapping,
+        "reversed_global_mapping": reversed_global_mapping,
+        "hidden": hidden,
+        "num_tokens": num_tokens,
+        "num_local_experts": num_local_experts,
+        "expert_offsets": expert_offsets,
+        "temp": temp,
+    }
+    
+    buffer._alltoall_low_latency_handle = combine_handle_data
+    
+    if use_fp8:
+        recv_x = (packed_recv_x, packed_recv_x_scales)
+    else:
+        recv_x = packed_recv_x
+    
+    hook = lambda: None
+    
+    return (
+        recv_x,
+        packed_recv_count,
+        handle_tuple,
+        EventOverlap(),
+        hook,
+    )
+
+
+def alltoall_low_latency_combine(
+    buffer,
+    x,
+    topk_idx,
+    topk_weights,
+    handle,
+    zero_copy=False,
+    async_finish=False,
+    return_recv_hook=False,
+    out=None,
+):
+    packed_recv_src_info = handle[0]
+    packed_recv_layout_range = handle[1]
+    num_max_dispatch_tokens_per_rank = handle[2]
+    hidden = handle[3]
+    num_experts = handle[4]
+    packed_recv_count = handle[5]
+    
+    combine_data = buffer._alltoall_low_latency_handle
+    input_splits = combine_data["input_splits"]
+    output_splits = combine_data["output_splits"]
+    original_topk_idx = combine_data["topk_idx"]
+    reversed_local_mapping = combine_data["reversed_local_mapping"]
+    reversed_global_mapping = combine_data["reversed_global_mapping"]
+    num_tokens = combine_data["num_tokens"]
+    num_local_experts = combine_data["num_local_experts"]
+    expert_offsets = combine_data["expert_offsets"]
+    temp = combine_data["temp"]
+    
+    num_combined_tokens = num_tokens
+    topk_idx_int = original_topk_idx.to(torch.int32)
+    
+    quant_enabled = isinstance(x, tuple)
+    if quant_enabled:
+        x_int8, x_scales = x
+    else:
+        x_int8 = None
+        x_scales = None
+        x_fp16 = x
+    
+    if quant_enabled:
+        expert_outputs = []
+        expert_scales = []
+        for expert_idx in range(num_local_experts):
+            expert_recv_count = packed_recv_count[expert_idx].item()
+            if expert_recv_count > 0:
+                dest_start = int(expert_idx * temp)
+                dest_end = dest_start + expert_recv_count
+                expert_slice_int8 = x_int8[dest_start:dest_end, :]
+                expert_slice_scale = x_scales[dest_start:dest_end]
+                expert_slice = torch_npu.npu_dequant(
+                    expert_slice_int8,
+                    expert_slice_scale,
+                    quant_mode=1,
+                )
+                expert_outputs.append(expert_slice)
+        
+        if len(expert_outputs) > 0:
+            x_concat = torch.cat(expert_outputs, dim=0)
+        else:
+            x_concat = torch.empty([0, hidden], dtype=torch.bfloat16, device=x_int8.device)
+    else:
+        expert_outputs = []
+        for expert_idx in range(num_local_experts):
+            expert_recv_count = packed_recv_count[expert_idx].item()
+            if expert_recv_count > 0:
+                dest_start = int(expert_idx * temp)
+                dest_end = dest_start + expert_recv_count
+                expert_slice = x_fp16[dest_start:dest_end, :]
+                expert_outputs.append(expert_slice)
+        
+        if len(expert_outputs) > 0:
+            x_concat = torch.cat(expert_outputs, dim=0)
+        else:
+            x_concat = torch.empty([0, hidden], dtype=torch.bfloat16, device=x_fp16.device)
+    
+    if x_concat.shape[0] > 0 and reversed_global_mapping is not None:
+        x_unpermuted = torch_npu.npu_moe_token_unpermute(
+            x_concat, reversed_global_mapping
+        )
+    else:
+        x_unpermuted = x_concat
+    
+    _, local_tokens, a2a_handle = async_all_to_all(
+        x_unpermuted,
+        input_splits,
+        output_splits,
+        buffer.group,
+    )
+    a2a_handle.wait()
+    
+    if quant_enabled:
+        x_int8.untyped_storage().resize_(0)
+        x_scales.untyped_storage().resize_(0)
+    
+    hidden_shape_before_permute = [num_tokens * topk_idx.size(1), hidden]
+    
+    output = torch_npu.npu_moe_token_unpermute(
+        permuted_tokens=local_tokens,
+        sorted_indices=reversed_local_mapping.to(torch.int32),
+        probs=topk_weights,
+        restore_shape=hidden_shape_before_permute,
+    )
+    
+    output = output.view([num_combined_tokens, hidden])
+    
+    hook = lambda: None
+    
+    return output, EventOverlap(), hook
