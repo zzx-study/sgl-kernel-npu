@@ -297,28 +297,59 @@ def alltoall_low_latency_dispatch(
     )
 
     expanded_x_2d = expanded_x.reshape(num_experts * expert_capacity, hidden)
-
     chunk_size = num_local_experts * expert_capacity
-    input_list = [
-        expanded_x_2d[r * chunk_size : (r + 1) * chunk_size].contiguous()
-        for r in range(group_size)
-    ]
-    output_list = [
-        torch.empty(chunk_size, hidden, dtype=expanded_x_2d.dtype, device=device)
-        for r in range(group_size)
-    ]
-    dist.all_to_all(output_list, input_list, group=group)
-    recv_x_raw = torch.cat(output_list, dim=0)
 
-    recv_all = recv_x_raw.reshape(
-        group_size, num_local_experts, expert_capacity, hidden
-    )
-    recv_all = recv_all.permute(1, 0, 2, 3).contiguous()
-    recv_x = recv_all.reshape(num_local_experts * group_size * expert_capacity, hidden)
-
-    recv_x_scales = None
     if use_fp8:
-        recv_x_int8, recv_x_scales = torch_npu.npu_dynamic_quant(recv_x)
+        expanded_x_int8, expanded_x_scales = torch_npu.npu_dynamic_quant(expanded_x_2d)
+        num_scale_groups = expanded_x_scales.size(1)
+        combined_hidden = hidden + num_scale_groups
+        combined_send = torch.cat([
+            expanded_x_int8.to(torch.bfloat16),
+            expanded_x_scales.to(torch.bfloat16),
+        ], dim=1)
+
+        input_list = [
+            combined_send[r * chunk_size : (r + 1) * chunk_size].contiguous()
+            for r in range(group_size)
+        ]
+        output_list = [
+            torch.empty(chunk_size, combined_hidden, dtype=torch.bfloat16, device=device)
+            for r in range(group_size)
+        ]
+        dist.all_to_all(output_list, input_list, group=group)
+        recv_combined_raw = torch.cat(output_list, dim=0)
+
+        recv_combined = recv_combined_raw.reshape(
+            group_size, num_local_experts, expert_capacity, combined_hidden
+        )
+        recv_combined = recv_combined.permute(1, 0, 2, 3).contiguous()
+        recv_combined = recv_combined.reshape(
+            num_local_experts * group_size * expert_capacity, combined_hidden
+        )
+
+        recv_x_int8 = recv_combined[:, :hidden].to(torch.int8)
+        recv_x_scales = recv_combined[:, hidden:hidden + num_scale_groups].to(torch.float32)
+        recv_x_out = (recv_x_int8, recv_x_scales)
+    else:
+        input_list = [
+            expanded_x_2d[r * chunk_size : (r + 1) * chunk_size].contiguous()
+            for r in range(group_size)
+        ]
+        output_list = [
+            torch.empty(chunk_size, hidden, dtype=expanded_x_2d.dtype, device=device)
+            for r in range(group_size)
+        ]
+        dist.all_to_all(output_list, input_list, group=group)
+        recv_x_raw = torch.cat(output_list, dim=0)
+
+        recv_all = recv_x_raw.reshape(
+            group_size, num_local_experts, expert_capacity, hidden
+        )
+        recv_all = recv_all.permute(1, 0, 2, 3).contiguous()
+        recv_x = recv_all.reshape(
+            num_local_experts * group_size * expert_capacity, hidden
+        )
+        recv_x_out = recv_x
 
     num_global_tokens_per_expert = _gather_along_first_dim(
         expert_tokens_count, group
@@ -344,11 +375,6 @@ def alltoall_low_latency_dispatch(
         group_size,
         packed_recv_count,
     )
-
-    if use_fp8:
-        recv_x_out = (recv_x_int8, recv_x_scales)
-    else:
-        recv_x_out = recv_x
 
     return (
         recv_x_out,
