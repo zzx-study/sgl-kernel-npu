@@ -8,7 +8,13 @@ import torch.distributed as dist
 import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
-from .alltoall import alltoall_combine, alltoall_dispatch, alltoall_get_dispatch_layout, alltoall_low_latency_combine, alltoall_low_latency_dispatch
+from .alltoall import (
+    alltoall_combine,
+    alltoall_dispatch,
+    alltoall_get_dispatch_layout,
+    alltoall_low_latency_combine,
+    alltoall_low_latency_dispatch,
+)
 from .utils import EventOverlap, log_parameters
 
 

@@ -256,6 +256,7 @@ def alltoall_combine(buffer, x, handle):
 
     return output, None, EventOverlap()
 
+
 def alltoall_low_latency_dispatch(
     buffer,
     x,
@@ -276,33 +277,42 @@ def alltoall_low_latency_dispatch(
     device = x.device
     hidden = x.size(1)
     num_tokens = x.size(0)
-    num_topk = topk_idx.size(1)
 
     topk_idx_int = topk_idx.to(torch.int32)
     expert_capacity = num_max_dispatch_tokens_per_rank
 
-    (expanded_x, expanded_row_idx, expert_tokens_count, _) = torch_npu.npu_moe_init_routing_v2(
-        x,
-        topk_idx_int,
-        quant_mode=-1,
-        expert_num=num_experts,
-        expert_tokens_num_type=1,
-        expert_tokens_num_flag=True,
-        row_idx_type=0,
-        drop_pad_mode=1,
-        expert_capacity=expert_capacity,
-        active_expert_range=[0, num_experts],
+    (expanded_x, expanded_row_idx, expert_tokens_count, _) = (
+        torch_npu.npu_moe_init_routing_v2(
+            x,
+            topk_idx_int,
+            quant_mode=-1,
+            expert_num=num_experts,
+            expert_tokens_num_type=1,
+            expert_tokens_num_flag=True,
+            row_idx_type=0,
+            drop_pad_mode=1,
+            expert_capacity=expert_capacity,
+            active_expert_range=[0, num_experts],
+        )
     )
 
     expanded_x_2d = expanded_x.reshape(num_experts * expert_capacity, hidden)
 
     chunk_size = num_local_experts * expert_capacity
-    input_list = [expanded_x_2d[r * chunk_size:(r + 1) * chunk_size].contiguous() for r in range(group_size)]
-    output_list = [torch.empty(chunk_size, hidden, dtype=expanded_x_2d.dtype, device=device) for r in range(group_size)]
+    input_list = [
+        expanded_x_2d[r * chunk_size : (r + 1) * chunk_size].contiguous()
+        for r in range(group_size)
+    ]
+    output_list = [
+        torch.empty(chunk_size, hidden, dtype=expanded_x_2d.dtype, device=device)
+        for r in range(group_size)
+    ]
     dist.all_to_all(output_list, input_list, group=group)
     recv_x_raw = torch.cat(output_list, dim=0)
 
-    recv_all = recv_x_raw.reshape(group_size, num_local_experts, expert_capacity, hidden)
+    recv_all = recv_x_raw.reshape(
+        group_size, num_local_experts, expert_capacity, hidden
+    )
     recv_all = recv_all.permute(1, 0, 2, 3).contiguous()
     recv_x = recv_all.reshape(num_local_experts * group_size * expert_capacity, hidden)
 
@@ -315,59 +325,37 @@ def alltoall_low_latency_dispatch(
     ).reshape(group_size, num_experts)
 
     local_expert_indices_offset = ep_rank * num_local_experts
-    packed_recv_count = num_global_tokens_per_expert[
-        :, local_expert_indices_offset:local_expert_indices_offset + num_local_experts
-    ].sum(axis=0).to(torch.int64)
-
-    packed_recv_src_info = torch.zeros(
-        [num_max_dispatch_tokens_per_rank * group_size * 3],
-        dtype=torch.int32,
-        device=device,
+    packed_recv_count = (
+        num_global_tokens_per_expert[
+            :,
+            local_expert_indices_offset : local_expert_indices_offset
+            + num_local_experts,
+        ]
+        .sum(axis=0)
+        .to(torch.int64)
     )
-
-    layout_range_size = num_local_experts * group_size if num_local_experts > 0 else group_size
-    layout_range = torch.zeros([layout_range_size], dtype=torch.int32, device=device)
-
-    cumsum_recv = packed_recv_count.cumsum(0)
-    expert_range_idx = torch.arange(1, num_local_experts + 1, dtype=torch.int64, device=device)
-    layout_range[expert_range_idx * group_size - 1] = cumsum_recv.to(torch.int32)
-
-    packed_recv_layout_range = layout_range
 
     handle_tuple = (
-        packed_recv_src_info,
-        packed_recv_layout_range,
-        num_max_dispatch_tokens_per_rank,
+        expanded_row_idx,
+        expert_capacity,
         hidden,
-        num_experts,
+        num_tokens,
+        num_local_experts,
+        group_size,
         packed_recv_count,
     )
-
-    combine_handle_data = {
-        "expert_capacity": expert_capacity,
-        "expanded_row_idx": expanded_row_idx,
-        "hidden": hidden,
-        "num_tokens": num_tokens,
-        "num_local_experts": num_local_experts,
-        "num_experts": num_experts,
-        "group_size": group_size,
-    }
-
-    buffer._alltoall_low_latency_handle = combine_handle_data
 
     if use_fp8:
         recv_x_out = (recv_x_int8, recv_x_scales)
     else:
         recv_x_out = recv_x
 
-    hook = lambda: None
-
     return (
         recv_x_out,
         packed_recv_count,
         handle_tuple,
         EventOverlap(),
-        hook,
+        lambda: None,
     )
 
 
@@ -382,30 +370,31 @@ def alltoall_low_latency_combine(
     return_recv_hook=False,
     out=None,
 ):
-    packed_recv_src_info = handle[0]
-    packed_recv_layout_range = handle[1]
-    num_max_dispatch_tokens_per_rank = handle[2]
-    hidden = handle[3]
-    num_experts = handle[4]
-    packed_recv_count = handle[5]
-
-    combine_data = buffer._alltoall_low_latency_handle
-    expert_capacity = combine_data["expert_capacity"]
-    expanded_row_idx = combine_data["expanded_row_idx"]
-    num_tokens = combine_data["num_tokens"]
-    num_local_experts = combine_data["num_local_experts"]
-    group_size = combine_data["group_size"]
+    expanded_row_idx = handle[0]
+    expert_capacity = handle[1]
+    hidden = handle[2]
+    num_tokens = handle[3]
+    num_local_experts = handle[4]
+    group_size = handle[5]
 
     device = x.device
     group = buffer.group
 
     x_reordered = x.reshape(num_local_experts, group_size, expert_capacity, hidden)
     x_reordered = x_reordered.permute(1, 0, 2, 3).contiguous()
-    x_reordered = x_reordered.reshape(group_size * num_local_experts * expert_capacity, hidden)
+    x_reordered = x_reordered.reshape(
+        group_size * num_local_experts * expert_capacity, hidden
+    )
 
     chunk_size = num_local_experts * expert_capacity
-    input_list = [x_reordered[r * chunk_size:(r + 1) * chunk_size].contiguous() for r in range(group_size)]
-    output_list = [torch.empty(chunk_size, hidden, dtype=x.dtype, device=device) for r in range(group_size)]
+    input_list = [
+        x_reordered[r * chunk_size : (r + 1) * chunk_size].contiguous()
+        for r in range(group_size)
+    ]
+    output_list = [
+        torch.empty(chunk_size, hidden, dtype=x.dtype, device=device)
+        for r in range(group_size)
+    ]
     dist.all_to_all(output_list, input_list, group=group)
     recv_all_raw = torch.cat(output_list, dim=0)
 
@@ -413,7 +402,9 @@ def alltoall_low_latency_combine(
     valid_pairs_mask = flat_row_idx >= 0
     valid_positions = flat_row_idx[valid_pairs_mask]
     valid_tokens = recv_all_raw[valid_positions]
-    pair_indices = torch.arange(flat_row_idx.numel(), dtype=torch.int64, device=device)[valid_pairs_mask]
+    pair_indices = torch.arange(flat_row_idx.numel(), dtype=torch.int64, device=device)[
+        valid_pairs_mask
+    ]
 
     output = torch_npu.npu_moe_token_unpermute(
         permuted_tokens=valid_tokens,
@@ -422,6 +413,4 @@ def alltoall_low_latency_combine(
         restore_shape=[num_tokens, hidden],
     )
 
-    hook = lambda: None
-
-    return output, EventOverlap(), hook
+    return output, EventOverlap(), lambda: None
