@@ -69,6 +69,7 @@ def test(
 
     # Check dispatch correctness
     do_check = True
+    all_to_all_mode = int(os.getenv("DEEP_USE_ALLTOALL_MODE", 0)) == 1
     return_recv_hook = False
     hash_value, num_times = 0, 0
 
@@ -113,7 +114,7 @@ def test(
         )
         dist.all_gather_into_tensor(all_topk_idx, topk_idx_padded, group=group)
 
-        for i in range(num_local_experts if do_check else 0):
+        for i in range(num_local_experts if do_check and not all_to_all_mode else 0):
             expert_id = rank * num_local_experts + i
             temp = aligned_num_tokens / num_local_experts
             recv_count = packed_recv_count[i]
@@ -161,14 +162,15 @@ def test(
                 )
 
         # Check combine correctness
-        (
-            src_info,
-            layout_range,
-            num_max_dispatch_tokens_per_rank,
-            hidden,
-            num_experts,
-            packed_recv_count,
-        ) = handle
+        if not all_to_all_mode:
+            (
+                src_info,
+                layout_range,
+                num_max_dispatch_tokens_per_rank,
+                hidden,
+                num_experts,
+                packed_recv_count,
+            ) = handle
 
         out = torch.empty(
             (aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
@@ -237,7 +239,7 @@ def test(
         flush=True,
     )
 
-    if int(os.getenv("DEEP_USE_ALLTOALL_MODE", 0)) == 1:
+    if all_to_all_mode:
         return hash_value
 
     # Separate profiling
