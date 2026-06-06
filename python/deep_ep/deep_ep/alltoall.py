@@ -301,11 +301,11 @@ def alltoall_low_latency_dispatch(
 
     if use_fp8:
         expanded_x_int8, expanded_x_scales = torch_npu.npu_dynamic_quant(expanded_x_2d)
-        num_scale_groups = expanded_x_scales.size(1)
-        combined_hidden = hidden + num_scale_groups
+        expanded_x_scales_bf16 = expanded_x_scales.to(torch.bfloat16).unsqueeze(-1)
+        combined_hidden = hidden + 1
         combined_send = torch.cat([
             expanded_x_int8.to(torch.bfloat16),
-            expanded_x_scales.to(torch.bfloat16),
+            expanded_x_scales_bf16,
         ], dim=1)
 
         input_list = [
@@ -328,7 +328,7 @@ def alltoall_low_latency_dispatch(
         )
 
         recv_x_int8 = recv_combined[:, :hidden].to(torch.int8)
-        recv_x_scales = recv_combined[:, hidden:hidden + num_scale_groups].to(torch.float32)
+        recv_x_scales = recv_combined[:, hidden:hidden + 1].squeeze(-1).to(torch.float32)
         recv_x_out = (recv_x_int8, recv_x_scales)
     else:
         input_list = [
