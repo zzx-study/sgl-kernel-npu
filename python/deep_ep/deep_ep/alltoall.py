@@ -431,19 +431,18 @@ def alltoall_low_latency_combine(
     dist.all_to_all(output_list, input_list, group=group)
     recv_all_raw = torch.cat(output_list, dim=0)
 
-    flat_row_idx = expanded_row_idx.reshape(-1)
-    valid_pairs_mask = flat_row_idx >= 0
-    valid_positions = flat_row_idx[valid_pairs_mask]
-    valid_tokens = recv_all_raw[valid_positions]
-    pair_indices = torch.arange(flat_row_idx.numel(), dtype=torch.int64, device=device)[
-        valid_pairs_mask
-    ]
-
-    output = torch_npu.npu_moe_token_unpermute(
-        permuted_tokens=valid_tokens,
-        sorted_indices=pair_indices.to(torch.int32),
-        probs=topk_weights,
-        restore_shape=[num_tokens, hidden],
+    recv_all_raw = recv_all_raw.reshape(
+        group_size * num_local_experts, expert_capacity, hidden
+    )
+    output = torch_npu.npu_moe_finalize_routing(
+        expanded_permuted_rows=recv_all_raw,
+        skip1=None,
+        skip2=None,
+        bias=None,
+        scales=topk_weights,
+        expanded_src_to_dst_row=expanded_row_idx,
+        export_for_source_row=None,
+        drop_pad_mode=3,
     )
 
     return output, EventOverlap(), lambda: None
