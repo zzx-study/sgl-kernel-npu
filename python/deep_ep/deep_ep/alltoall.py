@@ -279,7 +279,7 @@ def alltoall_low_latency_dispatch(
     num_tokens = x.size(0)
 
     topk_idx_int = topk_idx.to(torch.int32)
-    expert_capacity = num_max_dispatch_tokens_per_rank
+    expert_capacity = num_tokens
 
     (expanded_x, expanded_row_idx, expert_tokens_count, _) = (
         torch_npu.npu_moe_init_routing_v2(
