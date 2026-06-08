@@ -358,7 +358,9 @@ def alltoall_low_latency_dispatch(
         )
         recv_x_out = recv_x
 
-    packed_recv_count = [expert_capacity] * num_local_experts
+    packed_recv_count = torch.full(
+        (expert_capacity,), num_local_experts, dtype=torch.int64
+    )
 
     handle_tuple = (
         expanded_row_idx,
