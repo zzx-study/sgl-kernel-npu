@@ -358,19 +358,8 @@ def alltoall_low_latency_dispatch(
         )
         recv_x_out = recv_x
 
-    num_global_tokens_per_expert = _gather_along_first_dim(
-        expert_tokens_count, group
-    ).reshape(group_size, num_experts)
-
-    local_expert_indices_offset = ep_rank * num_local_experts
     packed_recv_count = (
-        num_global_tokens_per_expert[
-            :,
-            local_expert_indices_offset : local_expert_indices_offset
-            + num_local_experts,
-        ]
-        .sum(axis=0)
-        .to(torch.int64)
+        [expert_capacity] * num_local_experts
     )
 
     handle_tuple = (
