@@ -303,17 +303,22 @@ def alltoall_low_latency_dispatch(
         expanded_x_int8, expanded_x_scales = torch_npu.npu_dynamic_quant(expanded_x_2d)
         expanded_x_scales_bf16 = expanded_x_scales.to(torch.bfloat16).unsqueeze(-1)
         combined_hidden = hidden + 1
-        combined_send = torch.cat([
-            expanded_x_int8.to(torch.bfloat16),
-            expanded_x_scales_bf16,
-        ], dim=1)
+        combined_send = torch.cat(
+            [
+                expanded_x_int8.to(torch.bfloat16),
+                expanded_x_scales_bf16,
+            ],
+            dim=1,
+        )
 
         input_list = [
             combined_send[r * chunk_size : (r + 1) * chunk_size].contiguous()
             for r in range(group_size)
         ]
         output_list = [
-            torch.empty(chunk_size, combined_hidden, dtype=torch.bfloat16, device=device)
+            torch.empty(
+                chunk_size, combined_hidden, dtype=torch.bfloat16, device=device
+            )
             for r in range(group_size)
         ]
         dist.all_to_all(output_list, input_list, group=group)
@@ -328,7 +333,9 @@ def alltoall_low_latency_dispatch(
         )
 
         recv_x_int8 = recv_combined[:, :hidden].to(torch.int8)
-        recv_x_scales = recv_combined[:, hidden:hidden + 1].squeeze(-1).to(torch.float32)
+        recv_x_scales = (
+            recv_combined[:, hidden : hidden + 1].squeeze(-1).to(torch.float32)
+        )
         recv_x_out = (recv_x_int8, recv_x_scales)
     else:
         input_list = [
