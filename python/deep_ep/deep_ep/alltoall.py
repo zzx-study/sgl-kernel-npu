@@ -284,8 +284,8 @@ def alltoall_low_latency_dispatch(
     )
     topk_padding = torch.zeros(
         aligned_num_tokens, topk_idx.size(1),
-        dtype=x.dtype,
-        device=x.device,
+        dtype=topk_idx.dtype,
+        device=topk_idx.device,
     )
     topk_padding[:num_tokens].copy_(topk_idx)
     x_padding[:num_tokens].copy_(x)
