@@ -282,9 +282,8 @@ def alltoall_low_latency_dispatch(
         dtype=x.dtype,
         device=x.device,
     )
-    topk_padding = torch.full(
-        (aligned_num_tokens, topk_idx.size(1)),
-        -1,
+    topk_padding = torch.zeros(
+        aligned_num_tokens, topk_idx.size(1),
         dtype=x.dtype,
         device=x.device,
     )
@@ -293,8 +292,7 @@ def alltoall_low_latency_dispatch(
 
     topk_idx_int = topk_padding.to(torch.int32)
     expert_capacity = aligned_num_tokens
-
-    (expanded_x, expanded_row_idx, expert_tokens_count, _) = (
+    (expanded_x, expanded_row_idx, _, _) = (
         torch_npu.npu_moe_init_routing_v2(
             x_padding,
             topk_idx_int,
@@ -436,7 +434,7 @@ def alltoall_low_latency_combine(
     recv_all_raw = recv_all_raw.reshape(
         group_size * num_local_experts, expert_capacity, hidden
     )
-    topk_weights_padding = torch.empty(
+    topk_weights_padding = torch.zeros(
         expert_capacity, topk_weights.size(1),
         dtype=x.dtype,
         device=x.device,
