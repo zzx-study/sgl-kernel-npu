@@ -273,7 +273,6 @@ def alltoall_low_latency_dispatch(
     group = buffer.group
     group_size = buffer.group_size
     num_local_experts = num_experts // group_size
-    ep_rank = buffer.rank
     device = x.device
     hidden = x.size(1)
     aligned_num_tokens = num_max_dispatch_tokens_per_rank
@@ -283,9 +282,16 @@ def alltoall_low_latency_dispatch(
         dtype=x.dtype,
         device=x.device,
     )
+    topk_padding = torch.full(
+        (aligned_num_tokens, topk_idx.size(1)),
+        -1,
+        dtype=x.dtype,
+        device=x.device,
+    )
+    topk_padding[:num_tokens].copy_(topk_idx)
     x_padding[:num_tokens].copy_(x)
 
-    topk_idx_int = topk_idx.to(torch.int32)
+    topk_idx_int = topk_padding.to(torch.int32)
     expert_capacity = aligned_num_tokens
 
     (expanded_x, expanded_row_idx, expert_tokens_count, _) = (
@@ -430,20 +436,22 @@ def alltoall_low_latency_combine(
     recv_all_raw = recv_all_raw.reshape(
         group_size * num_local_experts, expert_capacity, hidden
     )
+    topk_weights_padding = torch.empty(
+        expert_capacity, topk_weights.size(1),
+        dtype=x.dtype,
+        device=x.device,
+    )
+    topk_weights_padding[:num_tokens].copy_(topk_weights)
     output = torch_npu.npu_moe_finalize_routing(
         expanded_permuted_rows=recv_all_raw,
         skip1=None,
         skip2=None,
         bias=None,
-        scales=topk_weights,
+        scales=topk_weights_padding,
         expanded_src_to_dst_row=expanded_row_idx,
         export_for_source_row=None,
         drop_pad_mode=3,
     )
-    print(f"=================={output.shape=}============")
-    print(f"=================={recv_all_raw=}============")
-    print(f"=================={topk_weights.shape=}============")
-    print(f"============={num_tokens=}==============={expert_capacity=}==========")
     output = output[:num_tokens,:]
 
     return output, EventOverlap(), lambda: None
