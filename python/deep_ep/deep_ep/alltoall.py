@@ -276,16 +276,17 @@ def alltoall_low_latency_dispatch(
     ep_rank = buffer.rank
     device = x.device
     hidden = x.size(1)
-    num_tokens = num_max_dispatch_tokens_per_rank
+    aligned_num_tokens = num_max_dispatch_tokens_per_rank
+    num_tokens = x.size(0)
     x_padding = torch.zeros(
-        (num_max_dispatch_tokens_per_rank, hidden),
+        (aligned_num_tokens, hidden),
         dtype=x.dtype,
         device=x.device,
     )
-    x_padding[:x.size(0)].copy_(x)
+    x_padding[:num_tokens].copy_(x)
 
     topk_idx_int = topk_idx.to(torch.int32)
-    expert_capacity = num_tokens
+    expert_capacity = aligned_num_tokens
 
     (expanded_x, expanded_row_idx, expert_tokens_count, _) = (
         torch_npu.npu_moe_init_routing_v2(
@@ -439,6 +440,10 @@ def alltoall_low_latency_combine(
         export_for_source_row=None,
         drop_pad_mode=3,
     )
-    output = output[:x.size(0) - num_tokens,:]
+    print(f"=================={output.shape=}============")
+    print(f"=================={recv_all_raw=}============")
+    print(f"=================={topk_weights.shape=}============")
+    print(f"============={num_tokens=}==============={expert_capacity=}==========")
+    output = output[:num_tokens,:]
 
     return output, EventOverlap(), lambda: None
