@@ -171,6 +171,7 @@ def test(
                 hidden,
                 num_experts,
                 packed_recv_count,
+                expand_scales,
             ) = handle
 
         out = torch.empty(
