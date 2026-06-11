@@ -463,7 +463,7 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         (expanded_x, expanded_row_idx, _, expanded_x_scales) = torch_npu.npu_moe_init_routing_v2(
             x_padding,
             topk_idx_int,
-            quant_mode=-1,
+            quant_mode=quant_mode,
             expert_num=num_experts,
             expert_tokens_num_type=1,
             expert_tokens_num_flag=True,
@@ -475,7 +475,6 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
 
         expanded_x_2d = expanded_x.reshape(num_experts * expert_capacity, hidden)
         chunk_size = num_local_experts * expert_capacity
-
         input_list = [
             expanded_x_2d[r * chunk_size : (r + 1) * chunk_size].contiguous()
             for r in range(group_size)
@@ -496,7 +495,27 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         recv_x = recv_all.reshape(
             num_local_experts * group_size * expert_capacity, hidden
         )
-        recv_x_out = (torch_npu.npu_dynamic_quant(recv_x)) if use_fp8 else recv_x
+        if use_fp8:
+            scale_input_list = [
+                expanded_x_scales[r * chunk_size : (r + 1) * chunk_size] for r in range(group_size)
+            ]
+            scale_output_list = [
+                torch.empty(
+                    chunk_size, dtype=expanded_x_scales.dtype, device=device
+                )
+                for _ in range(group_size)
+            ]
+            dist.all_to_all(scale_output_list, scale_input_list, group)
+            recv_scale_raw = torch.cat(scale_output_list, dim=0)
+            recv_scale_all = recv_scale_raw.reshape(
+                group_size, num_local_experts, expert_capacity
+            )
+            recv_scale_all = recv_scale_all.permute(1, 0, 2).contiguous()
+            recv_scale = recv_scale_all.reshape(
+                num_local_experts * group_size * expert_capacity
+            )
+
+        recv_x_out = (recv_x, recv_scale) if use_fp8 else recv_x
 
         packed_recv_count = torch.full(
             (num_local_experts,),
