@@ -44,7 +44,7 @@ public:
     constexpr static uint32_t EXP_TOKEN_COUNT_FLAG_CNT = UB_32B_ALIGN / sizeof(int32_t);  // 8
     constexpr static uint32_t TBUF_SIZE = 190 * 1024;
     constexpr static uint32_t IPC_DATA_OFFSET = 4 * 1024 * 1024;
-    constexpr static uint32_t RDMA_DATA_SIZE = 800U * 1024U * 1024U;
+    constexpr static uint32_t RDMA_DATA_SIZE = 100U * 1024U * 1024U;
     constexpr static uint32_t IPC_FLAG_OFFSET = 1 * 1024 * 1024;
     constexpr static uint32_t IPC_TOKEN_CNT_OFFSET = 2 * 1024 * 1024;
     constexpr static uint32_t IPC_MAGIC_OFFSET = IPC_TOKEN_CNT_OFFSET - 128 * 32;
@@ -62,7 +62,7 @@ public:
     constexpr static uint32_t ARRIVAL_STATUS = 2;
     constexpr static uint32_t SKIP_STATUS = 3;
     constexpr static uint32_t EXTRA_TOKEN_INFO_NUM = 4U;  // 专家信息 权重信息 量化Scale 到达标志位
-    constexpr static uint32_t NOTIFY_DATA_SIZE = 400U * 1024U * 1024U;
+    constexpr static uint32_t NOTIFY_DATA_SIZE = 0U * 1024U * 1024U; // 目前A3跨机暂时不支持混部场景，可以先不考虑prefil偏移
 
     template <AscendC::HardEvent event>
     __aicore__ inline void SyncFunc()
@@ -244,7 +244,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
     moeExpertNum_ = tilingData.moeDistributeDispatchV2Info.moeExpertNum;
     localMoeExpertNum_ = moeExpertNum_ / worldSize_;
     totalSize_ = winContext_->winSize;
-    totalWinSize_ = RDMA_DATA_SIZE;  // 800 MB for RDMA
+    totalWinSize_ = RDMA_DATA_SIZE;  // 100 MB for RDMA
     shareMemOffset_ = totalWinSize_;
     halfWinSize_ = totalWinSize_ / 2;
     WIN_SIZE = halfWinSize_ - STATUS_SIZE_LAYERED;
