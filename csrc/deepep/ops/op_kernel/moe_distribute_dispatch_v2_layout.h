@@ -830,15 +830,12 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
             DataCopyPad(tokenTensorU8_[tokenOffsetInStruct_], xGMtU8[startTokenId * tokenLenInStruct_], tokenCopyParams,
                         tokenPadParams);
         }
-        PipeBarrier<PIPE_ALL>();
         // ExpertId进行拷贝
         DataCopyExtParams expCopyParams{static_cast<uint16_t>(currentTokenNum), static_cast<uint32_t>(realLenInStruct_),
                                         0, static_cast<uint32_t>(infoGapInStruct_), 0};
         DataCopyPadExtParams<uint8_t> expPadParams;
         DataCopyPad(tokenTensorU8_[expOffsetInStruct_], expertIdsGMTensorU8_[startTokenId * realLenInStruct_],
                     expCopyParams, expPadParams);
-        SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
-
         for (uint32_t tokenIndex = 0; tokenIndex < currentTokenNum; ++tokenIndex) {
             // 获取token在WinOut的地址
             // flag 进行 写入
@@ -860,6 +857,9 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
                 sendServerInfoTemp);
         }
         uint32_t tokenWinOutOffset = startTokenId * tokenStructLen_;
+        SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
+        SyncFunc<AscendC::HardEvent::S_MTE3>();
+
         DataCopy(sendTokensU8Tensor_[tokenWinOutOffset], tokenTensorU8_, currentTokenNum * tokenStructLen_);
         PipeBarrier<PIPE_ALL>();
         startTokenId += currentTokenNum;
