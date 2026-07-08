@@ -857,15 +857,13 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
                 sendServerInfoTemp);
         }
         uint32_t tokenWinOutOffset = startTokenId * tokenStructLen_;
-        SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
-        SyncFunc<AscendC::HardEvent::S_MTE3>();
+        PipeBarrier<PIPE_ALL>();
 
         DataCopy(sendTokensU8Tensor_[tokenWinOutOffset], tokenTensorU8_, currentTokenNum * tokenStructLen_);
         PipeBarrier<PIPE_ALL>();
         startTokenId += currentTokenNum;
         sendTokenNum -= currentTokenNum;
     }
-    PipeBarrier<PIPE_ALL>();
 }
 
 template <TemplateMC2TypeV2layeredClass>
