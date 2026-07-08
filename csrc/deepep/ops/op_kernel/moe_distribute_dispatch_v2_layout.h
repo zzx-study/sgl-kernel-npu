@@ -830,6 +830,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
             DataCopyPad(tokenTensorU8_[tokenOffsetInStruct_], xGMtU8[startTokenId * tokenLenInStruct_], tokenCopyParams,
                         tokenPadParams);
         }
+        PipeBarrier<PIPE_ALL>();
         // ExpertId进行拷贝
         DataCopyExtParams expCopyParams{static_cast<uint16_t>(currentTokenNum), static_cast<uint32_t>(realLenInStruct_),
                                         0, static_cast<uint32_t>(infoGapInStruct_), 0};
