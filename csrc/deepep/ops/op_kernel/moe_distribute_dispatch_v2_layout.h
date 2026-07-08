@@ -782,7 +782,6 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
     DataCopyPad(expertIdsI32Tensor, expertIdsGMTensor_, expCopyParams, expPadParams);
     SyncFunc<AscendC::HardEvent::MTE2_V>();
     Cast(expertIdsI16Tensor_, expertIdsI32Tensor, RoundMode::CAST_NONE, axisBS_ * axisK_);
-    SyncFunc<AscendC::HardEvent::V_MTE2>();
 
     // 计算单个token在ub中占用buffer大小，量化情况下还包含量化所学workspace
     uint32_t singleTokenUBSize = tokenStructLen_;
@@ -830,7 +829,6 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
             DataCopyPad(tokenTensorU8_[tokenOffsetInStruct_], xGMtU8[startTokenId * tokenLenInStruct_], tokenCopyParams,
                         tokenPadParams);
         }
-        PipeBarrier<PIPE_ALL>();
 
         // ExpertId进行拷贝
         DataCopyExtParams expCopyParams{static_cast<uint16_t>(currentTokenNum), static_cast<uint32_t>(realLenInStruct_),
@@ -838,6 +836,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
         DataCopyPadExtParams<uint8_t> expPadParams;
         DataCopyPad(tokenTensorU8_[expOffsetInStruct_], expertIdsGMTensorU8_[startTokenId * realLenInStruct_],
                     expCopyParams, expPadParams);
+        SyncFunc<AscendC::HardEvent::V_S>();
         for (uint32_t tokenIndex = 0; tokenIndex < currentTokenNum; ++tokenIndex) {
             // 获取token在WinOut的地址
             // flag 进行 写入
