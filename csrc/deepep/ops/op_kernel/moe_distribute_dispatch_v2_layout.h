@@ -809,6 +809,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
         tokenCastLt =
             tBuf.GetWithOffset<float>(axisH_ * maxTokenNumInUB, tokenCastLtOffset);  // 临时存放float类型token的tensor
     }
+    SyncFunc<AscendC::HardEvent::V_S>(); // 用于同步expertIdsI16Tensor_，在循环内使用
 
     // 每次向OutGM中拷贝batchNum个tokenStruct
     for (uint32_t batchIndex = 0; batchIndex < batchNum; batchIndex++) {
@@ -836,7 +837,6 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
         DataCopyPadExtParams<uint8_t> expPadParams;
         DataCopyPad(tokenTensorU8_[expOffsetInStruct_], expertIdsGMTensorU8_[startTokenId * realLenInStruct_],
                     expCopyParams, expPadParams);
-        SyncFunc<AscendC::HardEvent::V_S>();
         for (uint32_t tokenIndex = 0; tokenIndex < currentTokenNum; ++tokenIndex) {
             // 获取token在WinOut的地址
             // flag 进行 写入
@@ -1127,6 +1127,8 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
 
     Duplicate<int32_t>(tokenNumPerExp, 0, SERVER_RANK_SIZE * localMoeExpertNum_ * EXP_TOKEN_COUNT_FLAG_CNT);
     SyncFunc<AscendC::HardEvent::V_S>();
+    SyncFunc<AscendC::HardEvent::MTE2_S>();
+    SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
     while (tokenStatus != FINISH_STATUS) {
         if (formServerId == serverId_) {
             tokenStatus = GetSelfServerTokenInfo(selfTokenIdx, justExpInfo, localUB_U8);
@@ -1141,7 +1143,6 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
             continue;
         }
         LocalTensor<int32_t> expInfoTensor;
-        SyncFunc<AscendC::HardEvent::MTE2_S>();
         if (justExpInfo) {
             expInfoTensor = localUB_32;
         } else {
@@ -1172,7 +1173,6 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
                 targetExpOffset + targetServerOffset + targetRankOffset + targetTokenOffset;  // 总偏移
             targetTokenIpcGt.SetGlobalBuffer(
                 (__gm__ uint8_t *)(shareAddrs[targetRankId % SERVER_RANK_SIZE] + IPC_DATA_OFFSET + targetOffset));
-            SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
             DataCopy(targetTokenIpcGt, localUB_U8, tokenStructLen_);
         }
         SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
