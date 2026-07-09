@@ -1243,7 +1243,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
     int32_t cntSum = 0;
     const int tempSize = serverNum * SERVER_RANK_SIZE * localMoeExpertNum_;
     int log2WorldSize = ScalarGetSFFValue<1>(worldSize_);
-#pragma unroll 8
+// #pragma unroll 8
     for (uint32_t i = 0; i < tempSize; ++i) {
         cntSum += tokenCntUB(i << 3);
         tokenCntUB(i) = cntSum;
