@@ -1127,8 +1127,6 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
 
     Duplicate<int32_t>(tokenNumPerExp, 0, SERVER_RANK_SIZE * localMoeExpertNum_ * EXP_TOKEN_COUNT_FLAG_CNT);
     SyncFunc<AscendC::HardEvent::V_S>();
-    SyncFunc<AscendC::HardEvent::MTE2_S>();
-    SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
     while (tokenStatus != FINISH_STATUS) {
         if (formServerId == serverId_) {
             tokenStatus = GetSelfServerTokenInfo(selfTokenIdx, justExpInfo, localUB_U8);
@@ -1143,6 +1141,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
             continue;
         }
         LocalTensor<int32_t> expInfoTensor;
+        SyncFunc<AscendC::HardEvent::MTE2_S>();
         if (justExpInfo) {
             expInfoTensor = localUB_32;
         } else {
@@ -1173,6 +1172,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
                 targetExpOffset + targetServerOffset + targetRankOffset + targetTokenOffset;  // 总偏移
             targetTokenIpcGt.SetGlobalBuffer(
                 (__gm__ uint8_t *)(shareAddrs[targetRankId % SERVER_RANK_SIZE] + IPC_DATA_OFFSET + targetOffset));
+            SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
             DataCopy(targetTokenIpcGt, localUB_U8, tokenStructLen_);
         }
         SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
