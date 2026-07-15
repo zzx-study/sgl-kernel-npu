@@ -1389,15 +1389,16 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
         SyncAll<true>();
         CYCLE_PROF_RECORD(4);
         Ipc2Out();  // 接收IPC通信发来的token，并拷贝到OutGM
+        CYCLE_PROF_RECORD(5);
         if (aivId_ < serverNum) {
             PipeBarrier<PIPE_ALL>();
             CleanUp();
         }
-        CYCLE_PROF_RECORD(5);
+        CYCLE_PROF_RECORD(6);
 
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
-        CYCLE_PROF_RECORD(6);
+        CYCLE_PROF_RECORD(7);
         CYCLE_PROF_FINI();
     }
 }
