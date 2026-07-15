@@ -148,6 +148,7 @@ __aicore__ inline uint32_t InitWinState(GlobalTensor<uint32_t> selfDataStatusGMT
         pipe_barrier(PIPE_ALL);                                                                               \
         DataCopy(profHeader_, counterLocalTensor, 16);                                                        \
         pipe_barrier(PIPE_ALL);                                                                               \
+        printf("[RANK %d AIC %d] Init %u ReorderTokens %u RoCE %u wait %u Ipc2Out %u CleanUp %u finally %u\n", rankId_, aivId_, dataLocalTensor.GetValue(1), dataLocalTensor.GetValue(2), dataLocalTensor.GetValue(3), dataLocalTensor.GetValue(4), dataLocalTensor.GetValue(5), dataLocalTensor.GetValue(6)); \
     }
 #else
 #pragma message("original version")
