@@ -1099,8 +1099,8 @@ __aicore__ inline uint32_t MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layer
 template <TemplateMC2TypeV2layeredClass>
 __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFunc>::Win2Ipc()
 {
-    uint32_t coresPerServer = (aivNum_ - serverNum - 1) / serverNum;
-    uint32_t logicAivId = aivId_ - serverNum - 1;
+    uint32_t coresPerServer = (aivNum_ - 2 * serverNum) / serverNum;
+    uint32_t logicAivId = aivId_ - 2 * serverNum;
     if (logicAivId >= coresPerServer * serverNum) {
         return;
     }
@@ -1371,13 +1371,14 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
         SyncAll<true>();
         CYCLE_PROF_RECORD(2);
         if (aivId_ < serverNum) {  // 前serverNum个核做跨机通信，比如2机就是0-1核做跨机通信
-            if (aivId_ !=
-                serverId_) {  // 与serverId_不相同的核将数据发送到其他server，每个token只会发一份到同一个server
-                SendDataToServer(aivId_);
-            }
             CreateInnerReduceInfo(aivId_);  // 前serverNum个核 计算 recvCount 机内通信的count和index
-        } else if (aivId_ == serverNum) {
-            CreateOuterReduceInfo();  // 第serverNum个核 计算 recvCount 机间通信的count和index
+        } else if (aivId_ >= serverNum && aivId_ < serverNum + serverNum) {
+            if (aivId_ - serverNum !=
+                serverId_) {  // 与serverId_不相同的核将数据发送到其他server，每个token只会发一份到同一个server
+                SendDataToServer(aivId_ - serverNum);
+            } else {
+                CreateOuterReduceInfo();  // 第serverNum个核 计算 recvCount 机间通信的count和index
+            }
         } else {
             Win2Ipc();  // 剩余核 做IPC通信，将token发送给对应专家所在的rank
         }
