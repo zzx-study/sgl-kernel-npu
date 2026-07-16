@@ -1383,22 +1383,22 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
         }
         CYCLE_PROF_RECORD(3);
         SyncAll<true>();
+        CYCLE_PROF_RECORD(4);
         SetIpcFlag(IPC_FLAG_STEP_1);
         WaitIpcFlag(IPC_FLAG_STEP_1);
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
-        CYCLE_PROF_RECORD(4);
-        Ipc2Out();  // 接收IPC通信发来的token，并拷贝到OutGM
         CYCLE_PROF_RECORD(5);
+        Ipc2Out();  // 接收IPC通信发来的token，并拷贝到OutGM
+        CYCLE_PROF_RECORD(6);
         if (aivId_ < serverNum) {
             PipeBarrier<PIPE_ALL>();
             CleanUp();
         }
-        CYCLE_PROF_RECORD(6);
+        CYCLE_PROF_RECORD(7);
 
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
-        CYCLE_PROF_RECORD(7);
         CYCLE_PROF_FINI();
     }
 }
