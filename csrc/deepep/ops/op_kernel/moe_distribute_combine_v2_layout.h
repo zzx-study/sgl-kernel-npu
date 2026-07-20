@@ -111,7 +111,7 @@ public:
     __aicore__ inline void Process();
     __aicore__ inline void AIVRDMAPostSend(GM_ADDR srcDmaAddr, GM_ADDR destDmaAddr, uint64_t destRankId,
                                            uint64_t messageLen, __gm__ HcclAiRMAInfo *QpInfo);
-
+    CYCLE_PROF_CLASS_DEFINE();
 private:
     __aicore__ inline void BuffInit();
     __aicore__ inline void SplitCoreCal();
@@ -363,6 +363,8 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tiling, MoeDistributeCombineV2TilingData tilingData)
 {
     tpipe_ = pipe;
+    CYCLE_PROF_INIT(workspaceGM + axisBS_ * FLAG_SIZE);
+    CYCLE_PROF_RECORD(0);
     expandXGM_ = expandX;
     expertIdsGM_ = expertIds;
     expandIdxGM_ = expandIdx;
@@ -1206,8 +1208,10 @@ template <TemplateMC2TypeA2layeredClass>
 __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFunc>::Process()
 {
     if ASCEND_IS_AIV {
+        CYCLE_PROF_RECORD(1);
         GM2IPC();  // 前 worldSize个核执行：1. 重排token；2.通过IPC通信将token拷贝到目标rank的共享内存上；
         WaitIPC();  // 前SERVER_RANK_SIZE个核执行，通过IPC接收机内其他rank发来的status
+        CYCLE_PROF_RECORD(2);
         stepCoreNum = IPC_REDUCE_USED_CORE_NUM;
         if (coreIdx_ < stepCoreNum) {
             SumToWindow();
@@ -1216,6 +1220,7 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
         } else {
             SyncAll<true>();
         }
+        CYCLE_PROF_RECORD(3);
         if (coreIdx_ == 0U) {
             magicGlobal_.SetValue(MAGIC_OFFSET / sizeof(uint64_t), magicValue + 1);
             PipeBarrier<PIPE_ALL>();
@@ -1227,9 +1232,16 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
             AscendC::DataCacheCleanAndInvalid<uint32_t, AscendC::CacheLine::SINGLE_CACHE_LINE,
                                               AscendC::DcciDst::CACHELINE_OUT>(bufferIdGlobal_[0]);
         }
+        
+        CYCLE_PROF_RECORD(4);
         Preload();       // 前8个核执行
+        CYCLE_PROF_RECORD(5);
+
         WaitDispatch();  // 前serverNum个核执行
+        CYCLE_PROF_RECORD(6);
         SumToServer();
+        CYCLE_PROF_RECORD(7);
+        CYCLE_PROF_FINI();
     }
 }
 }  // namespace MoeDistributeCombineA2Impl
