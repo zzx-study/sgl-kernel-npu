@@ -363,7 +363,7 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tiling, MoeDistributeCombineV2TilingData tilingData)
 {
     tpipe_ = pipe;
-    CYCLE_PROF_INIT(workspaceGM + axisBS_ * FLAG_SIZE);
+    CYCLE_PROF_INIT(workspaceGM);
     CYCLE_PROF_RECORD(0);
     expandXGM_ = expandX;
     expertIdsGM_ = expertIds;
