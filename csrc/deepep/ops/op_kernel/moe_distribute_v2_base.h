@@ -148,7 +148,7 @@ __aicore__ inline uint32_t InitWinState(GlobalTensor<uint32_t> selfDataStatusGMT
         pipe_barrier(PIPE_ALL);                                                                               \
         DataCopy(profHeader_, counterLocalTensor, 16);                                                        \
         pipe_barrier(PIPE_ALL);                                                                               \
-        printf("[RANK %d AIC %d] Init %u IPC %u AIVRDMA %u clean %u preload %u wait %u sum %u\n", rankId_, coreIdx_, dataLocalTensor.GetValue(0), dataLocalTensor.GetValue(1), dataLocalTensor.GetValue(2), profTime_[3] - profTime_[2], profTime_[4] - profTime_[2], dataLocalTensor.GetValue(5), dataLocalTensor.GetValue(6)); \
+        printf("[RANK %d AIC %d] Init %u IPC %u AIVRDMA %u clean %u preload %u wait %u sum %u\n", rankId_, coreIdx_, dataLocalTensor.GetValue(0), dataLocalTensor.GetValue(1), dataLocalTensor.GetValue(2), dataLocalTensor.GetValue(3), dataLocalTensor.GetValue(4), dataLocalTensor.GetValue(5), dataLocalTensor.GetValue(6)); \
     }
         // printf("[RANK %d AIC %d] Init %u ReorderTokens %u RoCE %u sync %u wait %u ipc2out %u cleanup %u\n", rankId_, aivId_, dataLocalTensor.GetValue(0), dataLocalTensor.GetValue(1), dataLocalTensor.GetValue(2), dataLocalTensor.GetValue(3), dataLocalTensor.GetValue(4), dataLocalTensor.GetValue(5), dataLocalTensor.GetValue(6));
 #else
