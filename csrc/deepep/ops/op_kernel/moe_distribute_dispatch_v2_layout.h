@@ -89,7 +89,7 @@ public:
                                 GM_ADDR epRecvCountsOut, GM_ADDR workspaceGM, TPipe *pipe,
                                 const MoeDistributeDispatchV2TilingData tilingData);
     __aicore__ inline void Process();
-    CYCLE_PROF_CLASS_DEFINE();
+    // CYCLE_PROF_CLASS_DEFINE();
 
 private:
     __aicore__ inline void ReorderTokens();
@@ -227,8 +227,8 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
     const MoeDistributeDispatchV2TilingData tilingData)
 {
     axisBS_ = tilingData.moeDistributeDispatchV2Info.bs;
-    CYCLE_PROF_INIT(workspaceGM + axisBS_ * FLAG_SIZE);
-    CYCLE_PROF_RECORD(0);
+    // CYCLE_PROF_INIT(workspaceGM + axisBS_ * FLAG_SIZE);
+    // CYCLE_PROF_RECORD(0);
     tpipe_ = pipe;
 
     winContext_ = (__gm__ HcclOpResParam *)AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
@@ -1366,10 +1366,10 @@ template <TemplateMC2TypeV2layeredClass>
 __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFunc>::Process()
 {
     if ASCEND_IS_AIV {    // 全aiv处理
-        CYCLE_PROF_RECORD(1);
+        // CYCLE_PROF_RECORD(1);
         ReorderTokens();  // 前axisBS_个核处理，重排token，将tokenStruct放在一起，计算token索引，以及每个token要发给哪些server
         SyncAll<true>();
-        CYCLE_PROF_RECORD(2);
+        // CYCLE_PROF_RECORD(2);
         if (aivId_ < serverNum) {  // 前serverNum个核做跨机通信，比如2机就是0-1核做跨机通信
             CreateInnerReduceInfo(aivId_);  // 前serverNum个核 计算 recvCount 机内通信的count和index
         } else if (aivId_ >= serverNum && aivId_ < serverNum + serverNum) {
@@ -1382,25 +1382,25 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeV2layeredFu
         } else {
             Win2Ipc();  // 剩余核 做IPC通信，将token发送给对应专家所在的rank
         }
-        CYCLE_PROF_RECORD(3);
+        // CYCLE_PROF_RECORD(3);
         SyncAll<true>();
-        CYCLE_PROF_RECORD(4);
+        // CYCLE_PROF_RECORD(4);
         SetIpcFlag(IPC_FLAG_STEP_1);
         WaitIpcFlag(IPC_FLAG_STEP_1);
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
-        CYCLE_PROF_RECORD(5);
+        // CYCLE_PROF_RECORD(5);
         Ipc2Out();  // 接收IPC通信发来的token，并拷贝到OutGM
-        CYCLE_PROF_RECORD(6);
+        // CYCLE_PROF_RECORD(6);
         if (aivId_ < serverNum) {
             PipeBarrier<PIPE_ALL>();
             CleanUp();
         }
-        CYCLE_PROF_RECORD(7);
+        // CYCLE_PROF_RECORD(7);
 
         PipeBarrier<PIPE_ALL>();
         SyncAll<true>();
-        CYCLE_PROF_FINI();
+        // CYCLE_PROF_FINI();
     }
 }
 }  // namespace MoeDistributeDispatchV2Impl
