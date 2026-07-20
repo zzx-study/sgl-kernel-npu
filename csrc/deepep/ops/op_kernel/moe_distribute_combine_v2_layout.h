@@ -833,8 +833,6 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     SyncFunc<HardEvent::S_MTE3>();
     DataCopy(shareFlagGlobal_[(serverId_ + 1) * FLAG_TOTAL_SIZE + tokenOffset * FLAG_SINGLE_CNT], rdmaFlagLocal,
              FLAG_SINGLE_CNT);
-        CYCLE_PROF_RECORD(4);
-    SyncAll<true>();
 }
 
 template <TemplateMC2TypeA2layeredClass>
@@ -924,8 +922,6 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
                                              dataSpaceSize_ + selfServerID * STATE_OFFSET)),
                         tragRankId, 32, qp_info_);
     }
-        CYCLE_PROF_RECORD(5);
-    SyncAll<true>();
 }
 
 template <TemplateMC2TypeA2layeredClass>
@@ -1219,9 +1215,9 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
             SumToWindow();
         } else if (coreIdx_ < (stepCoreNum + serverNum)) {
             AlltoAllServerDispatch();
-        } else {
-            SyncAll<true>();
         }
+        CYCLE_PROF_RECORD(3);
+        SyncAll<true>();
         if (coreIdx_ == 0U) {
             magicGlobal_.SetValue(MAGIC_OFFSET / sizeof(uint64_t), magicValue + 1);
             PipeBarrier<PIPE_ALL>();
@@ -1233,9 +1229,10 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
             AscendC::DataCacheCleanAndInvalid<uint32_t, AscendC::CacheLine::SINGLE_CACHE_LINE,
                                               AscendC::DcciDst::CACHELINE_OUT>(bufferIdGlobal_[0]);
         }
-        CYCLE_PROF_RECORD(3);
+        CYCLE_PROF_RECORD(4);
         
         Preload();       // 前8个核执行
+        CYCLE_PROF_RECORD(5);
 
         WaitDispatch();  // 前serverNum个核执行
         CYCLE_PROF_RECORD(6);
