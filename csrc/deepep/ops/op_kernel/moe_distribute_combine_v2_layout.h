@@ -948,10 +948,10 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
 template <TemplateMC2TypeA2layeredClass>
 __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFunc>::Preload()
 {
-    uint32_t reduceCore = 8U;
-    if (coreIdx_ >= reduceCore) {
-        return;
-    }
+    // uint32_t reduceCore = 8U;
+    // if (coreIdx_ >= reduceCore) {
+    //     return;
+    // }
     processNum = axisBS_ / reduceCore;
     resNum = axisBS_ - processNum * reduceCore;
     resLen = (resNum == 0U) ? 0U : 1U;
@@ -1007,11 +1007,11 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
 template <TemplateMC2TypeA2layeredClass>
 __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFunc>::SumToServer()
 {
-    uint32_t reduceCore = 8U;
-    if (coreIdx_ >= reduceCore) {
-        SyncAll<true>();
-        return;
-    }
+    // uint32_t reduceCore = 8U;
+    // if (coreIdx_ >= reduceCore) {
+    //     SyncAll<true>();
+    //     return;
+    // }
     // 初始化 fp16  bf16的offset
     uint32_t baseBuffOffset = preloadOffset;
     uint32_t fpBaseBuffOffset = baseBuffOffset;
