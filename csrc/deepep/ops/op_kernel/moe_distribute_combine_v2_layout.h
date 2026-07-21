@@ -952,8 +952,8 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     // if (coreIdx_ >= reduceCore) {
     //     return;
     // }
-    processNum = axisBS_ / reduceCore;
-    resNum = axisBS_ - processNum * reduceCore;
+    processNum = axisBS_ / aivNum_;
+    resNum = axisBS_ - processNum * aivNum_;
     resLen = (resNum == 0U) ? 0U : 1U;
     startBs = 0U;
     endBs = 0U;
