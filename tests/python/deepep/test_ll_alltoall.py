@@ -163,9 +163,9 @@ def test(
         max_diff = torch.max(torch.abs(combined_x - golden) / golden_nozero).item()
         avg_diff = torch.mean(torch.abs(combined_x - golden) / golden_nozero).item()
         print(
-            f"rank {rank} PASSED [{quant_mode=}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
+            f"rank {rank} PASSED [{quant_type=}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
         )
-        diff_threshold = get_diff_threshold(quant_mode)
+        diff_threshold = get_diff_threshold(quant_type)
 
         assert diff < diff_threshold, f"Error: {diff=}"
         hash_value ^= hash_tensor(combined_x)
@@ -187,7 +187,7 @@ def test(
             topk_weights=topk_weights,
         )
         simulated_gemm_x_local = (
-            per_token_cast_back(*recv_x) if not quant_mode == "bf16" else recv_x
+            per_token_cast_back(*recv_x) if not quant_type == "bf16" else recv_x
         )
         combined_x, event, hook = buffer.low_latency_combine(
             simulated_gemm_x_local,
@@ -271,7 +271,7 @@ def test(
     # tuning combine
     recv_x, _, handle, _, _ = buffer.low_latency_dispatch(**dispatch_args)
     simulated_gemm_x_local = (
-        per_token_cast_back(*recv_x) if not quant_mode == "bf16" else recv_x
+        per_token_cast_back(*recv_x) if not quant_type == "bf16" else recv_x
     )
     combine_args = {
         "x": simulated_gemm_x_local,
