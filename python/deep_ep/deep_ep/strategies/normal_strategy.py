@@ -635,7 +635,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             _, dynamic_scale_after_all2all, scale_handle = self._async_all_to_all(
                 (
                     dynamic_scale.view(torch.uint8)
-                    if use_quant != "int8"
+                    if quant_mode != "int8"
                     else dynamic_scale
                 ),
                 output_splits,

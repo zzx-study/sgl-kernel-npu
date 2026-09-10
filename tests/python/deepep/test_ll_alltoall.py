@@ -186,9 +186,7 @@ def test(
             return_recv_hook=return_recv_hook,
             topk_weights=topk_weights,
         )
-        simulated_gemm_x_local = (
-            per_token_cast_back(*recv_x) if not quant_type == "bf16" else recv_x
-        )
+        simulated_gemm_x_local = per_token_cast_back(*recv_x)
         combined_x, event, hook = buffer.low_latency_combine(
             simulated_gemm_x_local,
             topk_idx,
@@ -270,9 +268,7 @@ def test(
 
     # tuning combine
     recv_x, _, handle, _, _ = buffer.low_latency_dispatch(**dispatch_args)
-    simulated_gemm_x_local = (
-        per_token_cast_back(*recv_x) if not quant_type == "bf16" else recv_x
-    )
+    simulated_gemm_x_local = per_token_cast_back(*recv_x)
     combine_args = {
         "x": simulated_gemm_x_local,
         "topk_idx": topk_idx,
