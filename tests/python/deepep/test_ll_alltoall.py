@@ -181,6 +181,7 @@ def test(
             topk_idx,
             aligned_num_tokens,
             num_experts,
+            use_fp8=False,
             cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
             async_finish=False,
             return_recv_hook=return_recv_hook,
@@ -253,6 +254,7 @@ def test(
         "topk_idx": topk_idx,
         "num_max_dispatch_tokens_per_rank": aligned_num_tokens,
         "num_experts": num_experts,
+        "use_fp8": False,
         "cumulative_local_expert_recv_stats": cumulative_local_expert_recv_stats,
         "topk_weights": topk_weights,
     }
