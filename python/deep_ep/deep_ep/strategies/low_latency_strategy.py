@@ -503,7 +503,7 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             "mx_fp4_e2m1",
         }
         if quant_mode is None:
-            quant_mode = self.get_quant_mode_from_bool(use_fp8, use_ue8m0, use_mxfp4)
+            quant_mode = "bf16"
         if quant_mode not in VALID_QUANT_MODES:
             raise NotImplementedError(
                 f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
@@ -611,21 +611,6 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             EventOverlap(),
             lambda: None,
         )
-
-    def get_quant_mode_from_bool(
-        self,
-        use_fp8=False,
-        use_ue8m0=False,
-        use_mxfp4=False,
-    ):
-        quant_mode = "bf16"
-        if use_fp8:
-            quant_mode = "int8"
-            if use_ue8m0:
-                quant_mode = "mx_fp8_e4m3"
-            elif use_mxfp4:
-                quant_mode = "mx_fp4_e2m1"
-        return quant_mode
 
     def low_latency_combine(
         self,
