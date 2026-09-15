@@ -1157,27 +1157,34 @@ public:
 
 ### 5.3 NormalDispatch (CamMoeDispatchNormal)
 
-| 步骤 | A3 (`cam_moe_dispatch_normal.h`) | A5 (`cam_moe_dispatch_normal_a5.h`) | A2 Layered (`cam_moe_distribute_dispatch_a2_layered.h`) |
-|------|----------------------------------|-------------------------------------|--------------------------------------------------------|
-| **1. 通信上下文** | `HcclOpResParam*` (EP+TP 双域) | `HcclOpParam*` (EP+TP 双域) | `HcclOpResParam*` + `Hccl<AICPU>` (仅 EP) |
-| **2. 上下文初始化** | 直接 cast `GetHcclContext<0/1>()` | 同 A3 | `hccl_.InitV2()` + `SetCcTilingV2()` + cast |
-| **3. Window 地址获取** | 直接字段 `localWindowsIn` / `remoteRes[].nextDevicePtr` | `GetBaseWindAddrByRankId()` 辅助函数 | `hccl_.GetWindowsInAddr/OutAddr(rankId)` |
-| **4. winDataOffset** | `dataState * (totalWinSize / 2) + maxBS * topK * hAlign` | `dataState * (baseWindSize / 2) + maxBS * topK * hAlign` | `bufferId_ * halfWinSize` (双buffer偏移) |
-| **5. 数据发送** | `DataCopyPad` 写共享窗口 GM | `DataCopyPad` 写共享窗口 GM | 机内: `DataCopy` 写 IPC 共享内存; 机间: `hccl_.BatchWrite<true>()` (RDMA) |
-| **6. Token 结构** | token + expandIdx(3个int32) | token + expandIdx + 可选 MX scale | token + expertIds(kAlign) + weights(kAlign) + tokenIdx + scales |
-| **7. 接收等待** | 轮询 `DataCopy` + `ReduceSum` 检查 sum == statusNumPerCore | 同 A3 | RDMA: 轮询 `DataCopy` 检查 `FLAG_VALUE(0xFFFFFFFF)`; IPC: 轮询 magic flag (`MergeMagicWithValue`) |
-| **8. 状态标志大小** | `STATE_OFFSET=32B` | `STATE_OFFSET=32B` | `STATE_OFFSET=512B` |
-| **9. 状态窗口偏移** | `STATE_WIN_OFFSET=950KB` | `STATE_WIN_OFFSET=1050KB` | `SELF_STATE_OFFSET=512KB` |
-| **10. Double buffer** | `dataState` 翻转 (0/1) | `dataState` 翻转 (0/1) | `bufferId_` 翻转 (通过 `bufferChosenGlobal_`) |
-| **11. 多轮同步** | `SetRoundStatus` + `WaitRoundStatus` (ReduceSum/Sum) | 同 A3 | IPC magic 两步握手 (step1=数据就绪, step2=清理完成) |
-| **12. 超时检测** | 有 (`TimeOutDetection`) | 无 | 无 |
-| **13. 量化支持** | DynamicQuant (int8) | DynamicQuant + IsMxQuant (int8/fp8/fp4) | StaticQuant + DynamicQuant (int8) |
-| **14. TP 域支持** | 是 (`winContext_[COMM_TP_IDX]`) | 是 | 否 (仅 EP) |
-| **15. Server 概念** | 无 (扁平 rank) | 无 (扁平 rank) | 有 (`SERVER_RANK_SIZE=8`) |
-| **16. HCCL 生命周期** | 无 (仅用窗口) | 无 (仅用窗口) | `InitV2` -> ... -> `Finalize` |
-| **17. 核间分工** | blockIdx 分配 expert/token | 同 A3 | aivId 分配 token/server, aivId==0 负责 BatchWrite |
-| **18. Process 步骤** | while(round): InputToShare -> SetStatus -> WaitStatus -> ShareToOutput -> SetRoundStatus -> WaitRoundStatus | 同 A3 | 16 步: Input2Win -> WriteRdmaCntInfo -> DispatchBetweenServer -> WaitWindow -> SetIpcFlag(step1) -> WaitIpcFlag(step1) -> Ipc2Out -> Cleanup -> SetIpcFlag(step2) -> WaitIpcFlag(step2) -> Finalize |
-| **19. 关键常量** | `WIN_STATE_OFFSET=500KB`, `COMBINE_STATE_WIN_OFFSET=4MB` | `WIN_STATE_OFFSET=550KB`, 其余同 A3 | `RDMA_DATA_SIZE=800MB`, `IPC_DATA_OFFSET=4MB`, `SERVER_RANK_SIZE=8` |
+| 步骤 | A3 (`ops/cam_moe_dispatch_normal.h`) | A5 (`ops/cam_moe_dispatch_normal_a5.h`) | A2 Base (`ops2/cam_moe_dispatch_normal.h`) | A2 Layered (`ops2/a2/cam_moe_distribute_dispatch_a2_layered.h`) |
+|------|---------------------------------------|-----------------------------------------|---------------------------------------------|------------------------------------------------------------------|
+| **1. 通信上下文** | `HcclOpResParam*` (EP+TP 双域) | `HcclOpParam*` (EP+TP 双域) | `HcclOpResParam*` (声明未用) + `Hccl<AICPU>` (仅 EP) | `HcclOpResParam*` + `Hccl<AICPU>` (仅 EP) |
+| **2. 上下文初始化** | 直接 cast `GetHcclContext<0/1>()` | 同 A3 | `hccl_.InitV2()` + `SetCcTilingV2()` + cast (winContext_ 赋值但未使用) | `hccl_.InitV2()` + `SetCcTilingV2()` + cast |
+| **3. hccl_ 成员** | 声明但**不调用** | 声明但**不调用** | 声明且调用 (`InitV2`, `SetCcTilingV2`, `GetWindowsInAddr`, `Finalize`) | 声明且调用 |
+| **4. Window 地址获取** | 直接字段 `localWindowsIn` / `remoteRes[].nextDevicePtr` | `GetBaseWindAddrByRankId()` 辅助函数 | `hccl_.GetWindowsInAddr(rankId)` | `hccl_.GetWindowsInAddr/OutAddr(rankId)` |
+| **5. winDataOffset** | `dataState * (totalWinSize / 2) + maxBS * topK * hAlign` | `dataState * (baseWindSize / 2) + maxBS * topK * hAlign` | `dataState * ((totalWinSize - STATE_SIZE*4) / 2) + min(maxBS, perRoundTokens) * topK * hAlign` | `bufferId_ * halfWinSize` (双buffer偏移) |
+| **6. 状态地址公式** | `localWindowsExp + dataState*WIN_STATE_OFFSET` | `GetStatusDataSpaceGm() + dataState*WIN_STATE_OFFSET` | `GetWindowsInAddr(rank) + totalWinSize - STATE_SIZE*2 + dataState*WIN_STATE_OFFSET` | `GetWindowsInAddr(rank) + totalWinSize_ - STATE_SIZE*3` |
+| **7. 数据发送** | `DataCopyPad` 写共享窗口 GM | `DataCopyPad` 写共享窗口 GM | `DataCopyPad` 写自身窗口 GM (HCCL底层完成跨节点) | 机内: `DataCopy` 写 IPC 共享内存; 机间: `hccl_.BatchWrite<true>()` (RDMA) |
+| **8. Token 结构** | token + expandIdx(3个int32: rankId, tokenIdx, k) | token + expandIdx + 可选 MX scale | token + expandIdx(3个int32) + 可选 dynamic scale (同 A3) | token + expertIds(kAlign) + weights(kAlign) + tokenIdx + scales |
+| **9. 接收等待** | 轮询 `DataCopy` + `ReduceSum` 检查 sum == statusNumPerCore | 同 A3 | 同 A3 (轮询 `DataCopy` + `ReduceSum`, float 1.0 求和) | RDMA: 轮询 `DataCopy` 检查 `FLAG_VALUE(0xFFFFFFFF)`; IPC: 轮询 magic flag (`MergeMagicWithValue`) |
+| **10. Round 等待** | `SetRoundStatus` + `WaitRoundStatus` (Sum 轮询, blockIdx==0) | 同 A3 | 同 A3 (`SetRoundStatus` + `WaitRoundStatus`, blockIdx==0) | IPC magic 两步握手 (step1=数据就绪, step2=清理完成) |
+| **11. 状态标志大小** | `STATE_OFFSET=32B` | `STATE_OFFSET=32B` | `STATE_OFFSET=32B` | `STATE_OFFSET=512B` |
+| **12. 状态窗口偏移** | `STATE_WIN_OFFSET=950KB` | `STATE_WIN_OFFSET=1050KB` | `STATE_WIN_OFFSET=950KB` | `SELF_STATE_OFFSET=512KB` |
+| **13. WIN_STATE_OFFSET** | `500KB` | `550KB` | `500KB` | N/A |
+| **14. COMBINE_STATE_WIN_OFFSET** | `4MB` | `4MB` | **`8MB`** | N/A (不同布局) |
+| **15. Double buffer** | `dataState` 翻转 (0/1) | `dataState` 翻转 (0/1) | `dataState` 翻转 (0/1) (读窗口状态区, 翻转写回) | `bufferId_` 翻转 (通过 `bufferChosenGlobal_`) |
+| **16. Magic 机制** | 无 (float 1.0 状态值) | 无 (float 1.0 状态值) | 无 (float 1.0 状态值, 无 magic) | 有 (`MergeMagicWithValue(magic, val) = magic*2+val`) |
+| **17. 超时检测** | 有 (`TimeOutDetection`) | 无 | 无 (仅诊断时间统计, 无超时退出) | 无 |
+| **18. 量化支持** | DynamicQuant (int8) | DynamicQuant + IsMxQuant (int8/fp8/fp4) | 仅 DynamicQuant (int8, 无 StaticQuant/MX) | StaticQuant + DynamicQuant (int8) |
+| **19. TP 域支持** | 是 (`winContext_[COMM_TP_IDX]`) | 是 | 否 (声明 `COMM_TP_IDX` 但未赋值/使用) | 否 (仅 EP) |
+| **20. Server 概念** | 无 (扁平 rank) | 无 (扁平 rank) | 无 (扁平 rank, 无 `SERVER_RANK_SIZE`) | 有 (`SERVER_RANK_SIZE=8`) |
+| **21. HCCL 生命周期** | 无 (仅用窗口) | 无 (仅用窗口) | `InitV2` -> ... -> `Finalize` | `InitV2` -> ... -> `Finalize` |
+| **22. 核间分工** | blockIdx 分配 expert/token | 同 A3 | blockIdx 分配 expert/token (同 A3) | aivId 分配 token/server, aivId==0 负责 BatchWrite |
+| **23. 多轮支持** | 有 (`round`, `perRoundTokens`, `realRound`) | 同 A3 | 有 (`round`, `perRoundTokens`, `realRound`, 同 A3) | 无 (单轮) |
+| **24. Process 步骤** | while(round): InputToShare -> SetStatus -> WaitStatus -> ShareToOutput -> SetRoundStatus -> WaitRoundStatus | 同 A3 | while(round): InputToShare -> SetStatus -> WaitStatus -> ShareToOutputLongSeq -> SetRoundStatus -> WaitRoundStatus -> Finalize | 16 步: Input2Win -> WriteRdmaCntInfo -> DispatchBetweenServer -> WaitWindow -> SetIpcFlag(step1) -> WaitIpcFlag(step1) -> Ipc2Out -> Cleanup -> SetIpcFlag(step2) -> WaitIpcFlag(step2) -> Finalize |
+| **25. 关键常量** | `WIN_STATE_OFFSET=500KB`, `COMBINE_STATE_WIN_OFFSET=4MB`, `NOTIFY_DISPATCH_BUFF_OFFSET=102MB` | `WIN_STATE_OFFSET=550KB`, `A5_MTE_STATE_WIN_SIZE=4MB` | `WIN_STATE_OFFSET=500KB`, `COMBINE_STATE_WIN_OFFSET=8MB`, `NOTIFY_DISPATCH_BUFF_OFFSET=202MB`, `STATE_SIZE=2MB` | `RDMA_DATA_SIZE=800MB`, `IPC_DATA_OFFSET=4MB`, `SERVER_RANK_SIZE=8` |
+| **26. winContext_ 使用** | 是 (直接字段访问) | 是 (helper 函数访问) | 否 (赋值但从未使用, 全部通过 `hccl_.GetWindowsInAddr()`) | 是 (用于 `winSize` 字段) |
 
 ### 5.4 NormalCombine (CamMoeCombineNormal)
 
