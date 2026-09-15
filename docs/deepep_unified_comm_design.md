@@ -1107,39 +1107,151 @@ public:
 
 ## 5. 各算子的机型适配映射
 
-### 5.1 Dispatch 算子适配映射
+以下按 6 个核心算子接口分别给出各机型在通信各步骤的差异对比表。涉及机型包括 A3、A5、CCU、A2 Single、A2 Layered，其中 dispatch_layout 仅区分 A3 与 A2 两个版本（A5/A2 两版共用）。
 
-| 步骤 | A3 接口 | A5 接口 | CCU 接口 | A2 Single 接口 | A2 Layered 接口 |
-|------|---------|---------|---------|---------------|----------------|
-| 1. 获取窗口地址 | `get_window_in_addr()` | `get_window_in_addr()` | N/A (API内部处理) | `get_window_in_addr()` | `get_window_in_addr()` |
-| 2. 获取 magic | `get_magic_value()` | `get_magic_value()` | `get_magic_value()` | `get_magic_value()` | `get_magic_value()` |
-| 3. 发送数据 | `send_data()` (DataCopyPad) | `send_data()` (DataCopyPad) | `allto_all_write()` | `batch_write()` | `rdma_post_send()` + IPC |
-| 4. 等待接收 | `wait_recv()` | `wait_recv()` (非阻塞) | `wait_recv()` | `wait_recv()` | `wait_recv()` + `wait_ipc_flag()` |
-| 5. 核间同步 | `sync_all()` | `sync_all()` | `sync_all()` | `sync_all()` | `sync_all()` + IPC flag |
-| 6. TP 域 | N/A | N/A | N/A | `is_need_allgather()` | N/A |
+### 5.1 DispatchLayout（纯计算，无通信）
 
-### 5.2 Combine 算子适配映射
+> 此算子不涉及 HCCL 通信，差异在于计算逻辑、输出张量和 Server 概念。
 
-| 步骤 | A3 接口 | A5 接口 | CCU 接口 | A2 Single 接口 | A2 Layered 接口 |
-|------|---------|---------|---------|---------------|----------------|
-| 1. 读取窗口数据 | `get_window_in_addr()` + `DataCopyPad` | 同 A3 | `allto_all_write()` | `get_window_in_addr()` | `get_ipc_info()` -> IPC 读取 |
-| 2. 加权聚合 | 标量加法 | 标量加法 | API内部处理 | `CopyAdd` | `SumToWindow()` (加权求和) |
-| 3. 跨 server 发送 | N/A | N/A | N/A | `batch_write()` | `batch_write()` (RDMA) |
-| 4. 最终聚合 | N/A | N/A | N/A | N/A | `SumToServer()` (8核并行) |
-| 5. 等待接收 | `wait_recv()` | `wait_recv()` | `wait_recv()` | `wait_recv()` | `wait_recv()` + `wait_ipc_flag()` |
+| 步骤/维度 | A3 (`ops/dispatch_layout.h`) | A2 Base (`ops/dispatch_layout_a2.h`) | A2 New (`ops2/dispatch_layout_a2.h`) |
+|-----------|------------------------------|--------------------------------------|---------------------------------------|
+| **HCCL 通信** | 无 | 无 | 无 |
+| **Server 概念** | 无 | 有 (`serverNum`, `localRankSize`) | 有 (`serverNum`, `localRankSize`) |
+| **多轮支持** | 有 (`round`, `perRoundTokens`) | 无 | 无 |
+| **Tiling 字段** | `numTokens, numRanks, numExperts, numTopk, perRoundTokens, rankId` | `numTokens, numRanks, numExperts, numTopk, localRankSize` (无 `perRoundTokens`/`rankId`) | `numTokens, numRanks, numExperts, numTopk, localRankSize, rankId` |
+| **sendTokenIdx 维度** | 无此张量 | `[token, numExperts]` | `[token, numTopk]` |
+| **tokenIdx 输出** | 无 | 无 | 有 (topkIdx 的 Cast 结果) |
+| **前缀和算法** | 标量递增 | 向量 `Mul`+`Add` | 标量 `GetValue`/`SetValue` |
+| **越界检查** | 有 | 无 | 有 |
+| **计算阶段数** | 2 阶段 | 3 阶段 | 3 阶段 |
+| **阶段2 同步链** | `MTE3_MTE2` -> `MTE2_S` | `MTE3_MTE2` -> `MTE2_V` -> `MTE2_S` | `MTE3_MTE2` -> `MTE2_MTE3` -> `MTE3_V` -> `MTE3_S` |
+| **输出张量数** | 5 (numTokensPerRank, numTokensPerExpert, isTokenInRank, sendTokenIdxSmall, notifySendData) | 10 (上述+sendTokenIdx, localTokenServer*4, expertRankTokenIdx) | 11 (上述+tokenIdx) |
+| **MAX_BATCH_SIZE** | 无 | 4096 | 4096 |
+| **TEMP_BATCH_SIZE** | 无 | 32 | 32 |
+| **核间同步** | `SyncAll<true>()` | `SyncAll<true>()` | `SyncAll<true>()` |
+| **UB Buffer 数** | 6 | 20 | 18 |
 
-### 5.3 NotifyDispatch 算子适配映射
+### 5.2 NotifyDispatch
 
-| 步骤 | A3 接口 | A5 接口 | A2 接口 |
-|------|---------|---------|---------|
-| 1. 初始化 | 直接访问 `winContext_` | helper 函数访问 | `hccl_.InitV2()` + `SetCcTilingV2()` |
-| 2. 获取窗口地址 | 直接字段 `localWindowsIn` | `GetBaseWindStateAddrByRankId()` | `hccl_.GetWindowsInAddr()` |
-| 3. 获取 status 地址 | `localWindowsExp + STATE_WIN_OFFSET` | `GetStatusDataSpaceGm() + STATE_WIN_OFFSET` | `winSize - IPC_BUFF_MAX_SIZE * 2` |
-| 4. Server 间通信 | N/A (单阶段) | N/A (单阶段) | `batch_write()` (RDMA) |
-| 5. Server 内通信 | IPC 共享内存 | IPC 共享内存 | IPC 共享内存 (`get_ipc_info()`) |
-| 6. 输出张量数 | 9 | 9 | 10 (新增 Server 维度索引) |
+| 步骤 | A3 (`ops/notify_dispatch.h`) | A5 (`ops/notify_dispatch_a5.h`) | A2 Base (`ops2/notify_dispatch.h`) | A2 Layered (`ops2/notify_dispatch_a2.h`) |
+|------|------------------------------|---------------------------------|-------------------------------------|------------------------------------------|
+| **1. 上下文类型** | `HcclOpResParam*` | `HcclOpParam*` | `HcclOpResParam*` | `HcclOpResParam*` |
+| **2. 上下文初始化** | 直接 cast `GetHcclContext<0>()` | 直接 cast `GetHcclContext<0>()` | `hccl_.InitV2()` + `SetCcTilingV2()` | `hccl_.InitV2()` + `SetCcTilingV2()` |
+| **3. hccl_ 成员** | 声明但**不调用** | **注释掉** | 声明且调用 | 声明且调用 |
+| **4. Window IN 获取** | 直接字段 `winContext_->localWindowsIn` / `remoteRes[].nextDevicePtr->windowsIn` | 辅助函数 `GetBaseWindStateAddrByRankId()` | `hccl_.GetWindowsInAddr(rankId)` | `hccl_.GetWindowsInAddr(rankId)` |
+| **5. Window OUT 获取** | 不使用 | 不使用 | 不使用 | `hccl_.GetWindowsOutAddr(rank)` (唯一使用) |
+| **6. winDataOffset** | `(magic % PING_PONG) * (totalWinSize / 2)` | `(magic % PING_PONG) * (baseWindSize / 2)` | `((totalWinSize_ - 4*STATE_SIZE) / 2) * (magic % PING_PONG)` | `(magic % PING_PONG) * IPC_BUFF_MAX_SIZE` |
+| **7. baseWindSize** | N/A (直接用 totalWinSize) | `GetWinSize() - A5_MTE_STATE_WIN_SIZE` | `totalWinSize_ - 4*Moe::STATE_SIZE` | `winSize - IPC_BUFF_MAX_SIZE * 2` |
+| **8. Magic 获取** | `DataCacheCleanAndInvalid` 读->自增->写回 | 同 A3 | 同 A3 | 原子自增 `GetValue`+`DataCopy` (无 `DataCacheCleanAndInvalid`) |
+| **9. Status 地址** | `winContext_->localWindowsExp + STATE_WIN_OFFSET` | `GetStatusDataSpaceGm() + STATE_WIN_OFFSET` | `hccl_.GetWindowsInAddr(rank) + totalWinSize_ - STATE_SIZE*3` | `hccl_.GetWindowsInAddr(rank) + IPC_DATA_OFFSET - ...` |
+| **10. Server 间发送** | N/A | N/A | N/A | `hccl_.BatchWrite<true>()` (RDMA) |
+| **11. Server 内发送** | `CpGM2GMPingPong` (GM->UB->GM) | 同 A3 | 同 A3 | `CpGM2GMPingPong` (同 A3) |
+| **12. 接收等待** | Magic 轮询 `WaitSyncFlag` -> `WaitOneRankPartFlag` (DataCopy + MAGIC_MASK 比较高32位) | 同 A3 | 同 A3 | Magic 轮询 (Server内) + Status/Data Flag 双重轮询 (Server间, `FLAG_VALUE=0xFFFFFFFF`) |
+| **13. 核间同步** | `SyncAll<true>()` | `SyncAll<true>()` | `SyncAll<true>()` | `SyncAll<true>()` (多处) |
+| **14. hccl_.Finalize** | 否 | 否 | 是 | 是 |
+| **15. Tiling 结构** | 不使用 | 不使用 | `NotifyDispatchTilingData` | `NotifyDispatchA2TilingData` |
+| **16. EXPERT_NORMAL_NUM** | 512 | 512 | **256** | N/A |
+| **17. Process 步骤** | 14 步 (AssembleSendData -> ... -> BuildRInSrcrankOffset) | 同 A3 (14步) | 15 步 (同 A3 + Finalize) | 3 阶段: ProcessBetweenServer -> ProcessWithinServer -> SplitAndCalcData |
+| **18. 输出张量** | 9 (recvCount, recvOffset, expertGlobalOffset, ...) | 同 A3 | 同 A3 | 10+ (tokenServerIdx, tokensUniquePerServer, epRankTokenCnt, offsetInner, countOuter, ...) |
+| **19. batchRounds 逻辑** | `round==1` -> `numLocalExperts>=128` -> `numExperts>512` -> `numExperts<=256` -> else | `round==1` -> `numExperts>512` -> `numLocalExperts>=128` -> `numExperts<=256` -> else | `numExperts > 256 ? 16 : 32` (简化) | N/A (不同流程) |
 
-### 5.4 aclnn 算子调用适配
+### 5.3 NormalDispatch (CamMoeDispatchNormal)
+
+| 步骤 | A3 (`cam_moe_dispatch_normal.h`) | A5 (`cam_moe_dispatch_normal_a5.h`) | A2 Layered (`cam_moe_distribute_dispatch_a2_layered.h`) |
+|------|----------------------------------|-------------------------------------|--------------------------------------------------------|
+| **1. 通信上下文** | `HcclOpResParam*` (EP+TP 双域) | `HcclOpParam*` (EP+TP 双域) | `HcclOpResParam*` + `Hccl<AICPU>` (仅 EP) |
+| **2. 上下文初始化** | 直接 cast `GetHcclContext<0/1>()` | 同 A3 | `hccl_.InitV2()` + `SetCcTilingV2()` + cast |
+| **3. Window 地址获取** | 直接字段 `localWindowsIn` / `remoteRes[].nextDevicePtr` | `GetBaseWindAddrByRankId()` 辅助函数 | `hccl_.GetWindowsInAddr/OutAddr(rankId)` |
+| **4. winDataOffset** | `dataState * (totalWinSize / 2) + maxBS * topK * hAlign` | `dataState * (baseWindSize / 2) + maxBS * topK * hAlign` | `bufferId_ * halfWinSize` (双buffer偏移) |
+| **5. 数据发送** | `DataCopyPad` 写共享窗口 GM | `DataCopyPad` 写共享窗口 GM | 机内: `DataCopy` 写 IPC 共享内存; 机间: `hccl_.BatchWrite<true>()` (RDMA) |
+| **6. Token 结构** | token + expandIdx(3个int32) | token + expandIdx + 可选 MX scale | token + expertIds(kAlign) + weights(kAlign) + tokenIdx + scales |
+| **7. 接收等待** | 轮询 `DataCopy` + `ReduceSum` 检查 sum == statusNumPerCore | 同 A3 | RDMA: 轮询 `DataCopy` 检查 `FLAG_VALUE(0xFFFFFFFF)`; IPC: 轮询 magic flag (`MergeMagicWithValue`) |
+| **8. 状态标志大小** | `STATE_OFFSET=32B` | `STATE_OFFSET=32B` | `STATE_OFFSET=512B` |
+| **9. 状态窗口偏移** | `STATE_WIN_OFFSET=950KB` | `STATE_WIN_OFFSET=1050KB` | `SELF_STATE_OFFSET=512KB` |
+| **10. Double buffer** | `dataState` 翻转 (0/1) | `dataState` 翻转 (0/1) | `bufferId_` 翻转 (通过 `bufferChosenGlobal_`) |
+| **11. 多轮同步** | `SetRoundStatus` + `WaitRoundStatus` (ReduceSum/Sum) | 同 A3 | IPC magic 两步握手 (step1=数据就绪, step2=清理完成) |
+| **12. 超时检测** | 有 (`TimeOutDetection`) | 无 | 无 |
+| **13. 量化支持** | DynamicQuant (int8) | DynamicQuant + IsMxQuant (int8/fp8/fp4) | StaticQuant + DynamicQuant (int8) |
+| **14. TP 域支持** | 是 (`winContext_[COMM_TP_IDX]`) | 是 | 否 (仅 EP) |
+| **15. Server 概念** | 无 (扁平 rank) | 无 (扁平 rank) | 有 (`SERVER_RANK_SIZE=8`) |
+| **16. HCCL 生命周期** | 无 (仅用窗口) | 无 (仅用窗口) | `InitV2` -> ... -> `Finalize` |
+| **17. 核间分工** | blockIdx 分配 expert/token | 同 A3 | aivId 分配 token/server, aivId==0 负责 BatchWrite |
+| **18. Process 步骤** | while(round): InputToShare -> SetStatus -> WaitStatus -> ShareToOutput -> SetRoundStatus -> WaitRoundStatus | 同 A3 | 16 步: Input2Win -> WriteRdmaCntInfo -> DispatchBetweenServer -> WaitWindow -> SetIpcFlag(step1) -> WaitIpcFlag(step1) -> Ipc2Out -> Cleanup -> SetIpcFlag(step2) -> WaitIpcFlag(step2) -> Finalize |
+| **19. 关键常量** | `WIN_STATE_OFFSET=500KB`, `COMBINE_STATE_WIN_OFFSET=4MB` | `WIN_STATE_OFFSET=550KB`, 其余同 A3 | `RDMA_DATA_SIZE=800MB`, `IPC_DATA_OFFSET=4MB`, `SERVER_RANK_SIZE=8` |
+
+### 5.4 NormalCombine (CamMoeCombineNormal)
+
+| 步骤 | A3 (`cam_moe_combine_normal.h`) | A5 (`cam_moe_combine_normal_a5.h`) | A2 Base (`ops2/cam_moe_combine_normal.h`) | A2 Layered (`moe_distribute_combine_a2_layered.h`) |
+|------|--------------------------------|-----------------------------------|------------------------------------------|---------------------------------------------------|
+| **1. 通信上下文** | `HcclOpResParam*` | `HcclOpParam*` | `Hccl<AICPU>` + `HcclOpResParam*` | `Hccl<AICPU>` + `HcclOpResParam*` |
+| **2. 上下文初始化** | 直接 cast `GetHcclContext<0>()` | 同 A3 | `hccl_.InitV2()` + `SetCcTilingV2()` | `hccl_.InitV2()` + `SetCcTilingV2()` |
+| **3. Window 地址获取** | 直接字段 `remoteRes[].nextDevicePtr->windowsIn` | `GetBaseWindAddrByRankId()` (直接索引 `windowsIn[rankId]`) | `hccl_.GetWindowsInAddr(rankId)` | `hccl_.GetWindowsInAddr(rankId)` + IPC 地址表 |
+| **4. Magic/双缓冲** | magic (0/1) 读写 `localWindowsExp + MAGIC_WIN_OFFSET` | magic (0/1) 读写 `GetStatusDataSpaceGm() + MAGIC_WIN_OFFSET` | magic (0/1) 读写 `hccl_.GetWindowsInAddr() + totalWinSize_ - STATE_SIZE + MAGIC_WIN_OFFSET` | `bufferId_` XOR 翻转 + `stateValue_` (0/1) |
+| **5. winDataOffset** | `magic * (totalWinSize / 2)` | `magic * (baseWindSize / 2)` | `magic * ((totalWinSize_ - 4*STATE_SIZE) / 2)` | `bufferId_ * halfWinSize_` |
+| **6. 数据发送** | `DataCopyPad` 写远端 window (GM->UB->GM) | 同 A3 | 同 A3 | IPC: `DataCopy` 写共享内存; RDMA: `hccl_.BatchWrite<true>()` |
+| **7. 数据聚合** | `ReadBufferAndWeightedSum`: Cast->Muls(weight)->Add | 同 A3 | 同 A3 | `SumToWindow`: IPC 读取->Cast->Muls->Add; `SumToServer`: RDMA window 读取->Cast->Add |
+| **8. 接收等待** | 轮询 `DataCopy` + `Sum` 检查 `current == target` | 同 A3 | 同 A3 | `WaitBuffCopy` 轮询 flag; `WaitIPC` 轮询 `GM2IPC_SYNC_FLAG+magic`; `WaitDispatch` 轮询 `sumOfFlag == sumTarget_` |
+| **9. 跨核同步** | `SyncFunc` + `PipeBarrier` (无 `SyncAll`) | 同 A3 (无 `SyncAll`) | 同 A3 (无 `SyncAll`) | `SyncAll<true>()` (多次) + `SyncFunc` + `PipeBarrier` |
+| **10. hccl_.Finalize** | 否 | 否 | 是 | 是 |
+| **11. 发送核分配** | 按 token 均分 | rank-major 两级分区 (A>=W 按 rank 分核组, A<W 退化) | 按 token 均分 | 按 rank 分核 + server 分层 |
+| **12. Process 步骤** | 2 步: CopyBufferToShareAndSetStatus -> ReadBufferFromRemote | 同 A3 (2步) | 同 A3 (2步 + Finalize) | 7 步: AlltoAllDispatch(IPC) -> SumToWindow -> AlltoAllServerDispatch(RDMA) -> SetStatus -> Preload -> WaitDispatch -> SumToServer -> Finalize |
+| **13. COMBINE_STATE_WIN_OFFSET** | 4MB | 4MB | **8MB** | N/A (使用不同布局) |
+| **14. MAGIC_WIN_OFFSET** | 975KB | **1100KB** | 975KB | N/A (使用 `MAGIC_OFFSET`) |
+| **15. BATCH_SRC_INFO_CNT** | 无 | 128 (批量读 srcInfo) | 无 | N/A |
+| **16. Token 结构** | tokenSrcInfo: 3个uint32 (rankId, tokenId, topkId) | 同 A3 | 同 A3 | expandX + expandIdx + offsetInner/Outer + countOuter |
+
+### 5.5 DispatchV2 (MoeDistributeDispatchV2 低延迟)
+
+| 步骤 | A3/Base (`moe_distribute_dispatch_v2.h`) | A5 (`moe_distribute_dispatch_v2_a5.h`) | CCU (`moe_distribute_dispatch_v2_ccu.h`) | A2 Single (`ops2/moe_distribute_dispatch_v2_single.h`) | A2 Layered (`ops2/moe_distribute_dispatch_v2_layered.h`) |
+|------|------------------------------------------|----------------------------------------|------------------------------------------|--------------------------------------------------------|---------------------------------------------------------|
+| **1. 通信上下文** | `HcclOpParam*` (EP+TP) | `HcclOpParam*` (EP+TP) | `HcclCombineOpParam*` | `HcclOpResParam*` (EP+TP) | `HcclA2CombineOpParam*` |
+| **2. HCCL 对象** | 无 | 无 | `Hccl<CCU>` | `Hccl<AICPU>` | `Hccl<AICPU>` |
+| **3. 上下文初始化** | 直接 cast | 直接 cast | `hccl_.InitV2()` + `SetCcTilingV2()` | `hccl_.InitV2()` + `SetCcTilingV2()` + cast | `hccl_.InitV2()` + `SetCcTilingV2()` + cast |
+| **4. dataState 初始化** | `InitWinState()` helper | `InitWinState()` helper | 双 buffer 读 `statusGT(0)` 翻转 | 直接读写 `hccl_.GetWindowsInAddr() + STATE_WIN_OFFSET` + `DataCacheCleanAndInvalid` | `bufferId_` 从 `bufferIdGlobal_` 读取 |
+| **5. Window IN 获取** | `GetBaseWindAddrByRankId(ctx, rankId, curRankId)` | 同 A3 | `context->windowsOut[0]` | `hccl_.GetWindowsInAddr(rankId) + TOTAL_STATE_OFFSET` | `hccl_.GetWindowsInAddr(rankId_)` + `halfWinSize_ * bufferId_` |
+| **6. Window OUT 获取** | `GetBaseWindStateAddrByRankId()` | 同 A3 | `context->windowsOut[0]` (sendBuf=workspace) | N/A (同 IN) | `hccl_.GetWindowsOutAddr(rankId_)` + `halfWinSize_ * bufferId_` |
+| **7. winDataSizeOffset** | `dataState * (totalWinSize / 2)` | `dataState * (baseWindSize / 2)` | N/A (perRankDataSize 计算) | `dataState * (totalWinSize / 2)` | `bufferId_ * halfWinSize_` |
+| **8. 数据发送** | `DataCopyPad` 写窗口 | `DataCopyPad` (封装为 `ProcessToken()`) | `hccl_.AlltoAllvWrite<true>(sendBuf, sendOffset, sendSize, recvOffset, localDataSize)` | `DataCopyPad` 写窗口 | `AIVRDMAPostSend()` (直接操作 RoCE 硬件队列: 构造 WQE -> cacheWriteThrough -> 写 DoorBell) |
+| **9. 状态写入** | `DataCopy<int32_t>` 写 1.0 标记 | 同 A3 | N/A (HCCL 框架处理) | `DataCopy<int32_t>` 写 1.0 标记 | `AIVRDMAPostSend` 发送 flag (32B) |
+| **10. 接收等待** | `DataCopy` + `ReduceSum` 轮询 `sumOfFlag != compareTarget` | 同 A3 (非阻塞) | `hccl_.Wait(hcclHandleId_)` | `DataCopy` + `ReduceSum` (无超时检测) | Token flag 轮询: 检查 `SHOULD_SEND_FLAG_VALUE(0x0f0f0f0f)` / `END_OF_WRITE_FLAG_VALUE(0xffffffff)` + IPC flag 轮询 |
+| **11. 超时检测** | 有 (`TimeOutDetection`, 50000us) | 无 (while 中不调用) | 无 | 无 | 无 |
+| **12. 核间同步** | `SyncAll` + `SyncCntOnCore` | `SyncAll` + `SyncCntOnCore` | `SyncAll` (3次) | `SyncAll` + `SyncCntOnCore` | `SyncAll` + IPC flag (SetIpcFlag/WaitIpcFlag) |
+| **13. TP 域支持** | 是 (`IsNeedAllgather`) | 是 | 否 | 是 (`IsNeedAllgater`) | 否 |
+| **14. 量化支持** | Static/Dynamic | Static/Dynamic/MX/FP4/FP8 | Static/Dynamic/MX/PerGroup (QuantMode 枚举) | Static/Dynamic | Static/Dynamic |
+| **15. STATE_WIN_OFFSET** | 950KB | **1050KB** | N/A | 950KB | N/A |
+| **16. 额外状态偏移** | 无 | `A5_MTE_STATE_WIN_SIZE` (4MB) | `COUNT_OFFSET=512`, `STATUS_OFFSET=512` | `TOTAL_STATE_OFFSET=3MB` | `IPC_*` 系列偏移 |
+| **17. Process 流程** | AlltoAllDispatch -> SetStatus -> WaitDispatch -> LocalWindowCopy -> [AllGather] -> UpdateTokenNums | 同 A3 | CalcTokenActiveMask -> TokenScatter(Sort+Scatter) -> Communication(AlltoAllvWrite+Wait) -> TokenGather -> Finalize | 同 A3 + Finalize | ReorderTokens -> SendDataToServer(RDMA) + Win2Ipc -> SetIpcFlag -> WaitIpcFlag -> Ipc2Out -> CleanUp -> Finalize |
+| **18. hccl_.Finalize** | 否 | 否 | 是 (aivId==0) | 是 | 是 |
+| **19. QP/RDMA 信息** | N/A | N/A | N/A | N/A | `qp_info_ = winContext_->aiRMAInfo` (用于 `AIVRDMAPostSend`) |
+| **20. 双缓冲切换** | `dataState_` 翻转 | `dataState_` 翻转 | `statusGT(0)` 翻转 | `dataState_` 翻转 | `bufferId_` 翻转 (`bufferChosenGlobal_`) |
+
+### 5.6 CombineV2 (MoeDistributeCombineV2 低延迟)
+
+| 步骤 | A3/Base (`moe_distribute_combine_v2.h`) | A5 (`moe_distribute_combine_v2_a5.h`) | CCU (`moe_distribute_combine_v2_ccu.h`) | A2 Single (`ops2/moe_distribute_combine_v2_single.h`) | A2 Layered (`ops2/moe_distribute_combine_v2_layered.h`) |
+|------|------------------------------------------|----------------------------------------|------------------------------------------|--------------------------------------------------------|---------------------------------------------------------|
+| **1. 通信上下文** | `HcclOpParam*` (EP+TP) | `HcclOpParam*` (EP+TP) | `HcclCombineOpParam*` | `HcclOpResParam*` (EP+TP) | `HcclA2CombineOpParam*` |
+| **2. HCCL 对象** | 无 | 无 | `Hccl<CCU>` | `Hccl<AICPU>` | `Hccl<AICPU>` |
+| **3. 上下文初始化** | 直接 cast | 直接 cast | `hccl_.InitV2()` + `SetCcTilingV2()` | `hccl_.InitV2()` + `SetCcTilingV2()` + cast | `hccl_.InitV2()` + `SetCcTilingV2()` + cast |
+| **4. Window IN 获取** | `GetBaseWindAddrByRankId(ctx, rankId, curRankId)` | 同 A3 (A5底层: `windowsIn[rankId]+A5_MTE_STATE_WIN_SIZE`) | `context->windowsOut[0]` + 双buffer偏移 | `hccl_.GetWindowsInAddr(rankId) + TOTAL_STATE_OFFSET` (忽略 domain 参数) | `hccl_.GetWindowsInAddr(rankId_)` + `halfWinSize_ * bufferId_` |
+| **5. Window State 获取** | `GetBaseWindStateAddrByRankId()` | 同 A3 (A5底层: `windowsIn[rankId]`) | N/A (HCCL 框架处理) | `hccl_.GetWindowsInAddr(rankId) + winDataSizeOffset_ + winStatusOffset_` (用 IN 地址) | `windowInGM_ + dataSpaceSize_` (状态区在 window 尾部) |
+| **6. winDataSizeOffset** | `dataState * (totalWinSize / 2)` | `dataState * (baseWindSize / 2)` | N/A (perRankDataSize 计算) | `dataState * (totalWinSize / 2)` | `bufferId_ * halfWinSize_` |
+| **7. 数据发送** | `DataCopyPad` 写远端窗口 | 同 A3 | `hccl_.AlltoAllvWrite<true>()` | `DataCopyPad` 写远端窗口 | IPC: `DataCopy` 写共享内存; RDMA: `AIVRDMAPostSend()` |
+| **8. 数据聚合/规约** | `CustomAdd` (Cast->Add->Cast) 或 `Int8QuantProcess`; 最终: Cast->Muls->Add | 同 A3 + `ProcessExpert` 抽取 | `CalculateMoeResult`: Cast->Muls->Add | `CustomAdd` + `Int8QuantProcess`; 最终: Cast->Muls->Add | `SumToWindow`: Cast->Muls/Axpy->Add + 可选量化; `SumToServer`: Cast->Add + 可选反量化 |
+| **9. 接收等待** | `DataCopy`+`Sum` 轮询 `localState` vs target (阻塞式 while) | `DataCopy`+`Sum` 非阻塞返回 bool + `tokenStatusTensor` 跟踪 | `hccl_.Wait(hcclHandleId_)` | `DataCopy`+`Sum` 轮询 (无超时检测) | `WaitIPC`: 轮询 `GM2IPC_SYNC_FLAG+magic`; `WaitDispatch`: 轮询 `sumOfFlag == sumTarget_` |
+| **10. 超时检测** | 有 (50000us) | 无 | 无 | 无 | 无 |
+| **11. 核间同步** | `PipeBarrier` + `SyncFunc` | 同 A3 + `PipeBarrier<PIPE_ALL>` 新增 | `SyncAll` (3次) | `SyncAll` + `SyncFunc` | `SyncAll` (多次) + `SyncFunc` |
+| **12. TP 域支持** | 是 (`IsNeedReduceScatter`) | 是 | 否 | 是 (`IsNeedReduceScatter`) | 否 |
+| **13. 量化支持** | Int8Quant | Int8Quant | 不支持 | Int8Quant | DynamicQuant (`ExpandXTransType`) |
+| **14. 特殊专家** | 支持 (zero/copy/const) | 支持 | 不支持 | 不支持 | 不支持 |
+| **15. Magic 防伪** | 无 | 无 | 无 | 无 | 有 (`magicValue` + flag: `GM2IPC_SYNC_FLAG=12345`, `RDMA_TOKEN_ARRIVED_FLAG=123`, `RDMA_TOKEN_END_FLAG=321`) |
+| **16. 双缓冲** | `dataState_` 翻转 | `dataState_` 翻转 | `statusGT(0)` 翻转 | `dataState_` 翻转 | `bufferId_` XOR 翻转 + `sumTarget_` 翻转 |
+| **17. STATE_WIN_OFFSET** | 975KB | **1100KB** | N/A | 975KB | N/A |
+| **18. STATE_CHECK_OFFSET** | 1000KB | **1150KB** | N/A | N/A | N/A |
+| **19. Process 流程** | ReduceScatterTrans -> BuffInit -> SetWaitTpStatusAndDisPatch -> AlltoAllBuffInit -> LocalWindowCopy | 同 A3 + PipeBarrier 新增 | PrepareSendData -> Communication(AlltoAllvWrite+Wait) -> Calculate -> Finalize | 同 A3 + SyncAll + Finalize | GM2IPC -> WaitIPC -> SumToWindow -> AlltoAllServerDispatch(RDMA) -> WaitDispatch -> SumToServer -> Finalize |
+| **20. hccl_.Finalize** | 否 | 否 | 是 (aivId==0) | 是 | 是 |
+| **21. QP/RDMA 信息** | N/A | N/A | N/A | N/A | `qp_info_ = winContext_->aiRMAInfo` |
+
+### 5.7 aclnn 算子调用适配
 
 `deep_ep.cpp` 中的适配方案：
 
