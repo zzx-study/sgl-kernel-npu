@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<!-- saved from url=(0225)https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&rcl=20260908155010C971FC923500E42F5849&rrcfp=1860f75c&x-expires=1789458610&x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D -->
+<html lang="zh-CN" data-page-node-id="llRbeCdERXuVbcno6qUKVg"><head data-page-node-id="2INBSah1X395L0fwfbrf3E"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="GV1mXPNVtoXh3JpCFw4ZLp">
+<title>GIN 与 NCCL、DeepEP 深度解析：MoE 大模型通信栈的全景指南</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-soft: #f6f8fa;
+    --bg-sidebar: #f0f2f5;
+    --text: #1f2328;
+    --text-soft: #57606a;
+    --border: #d8dee4;
+    --accent: #0969da;
+    --accent-soft: #ddf4ff;
+    --green: #1a7f37;
+    --green-soft: #dafbe1;
+    --orange: #9a6700;
+    --orange-soft: #fff8c5;
+    --purple: #8250df;
+    --purple-soft: #fbefff;
+    --red: #cf222e;
+    --red-soft: #ffebe9;
+    --code-bg: #f6f8fa;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "Microsoft YaHei", Helvetica, Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.75;
+    font-size: 15.5px;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ============ Layout ============ */
+  .layout { display: flex; min-height: 100vh; }
+  .sidebar {
+    width: 280px;
+    flex-shrink: 0;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
+    padding: 24px 0 60px 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .sidebar::-webkit-scrollbar { width: 6px; }
+  .sidebar::-webkit-scrollbar-thumb { background: #c8cdd3; border-radius: 3px; }
+  .sidebar-title {
+    font-size: 15px;
+    font-weight: 700;
+    padding: 0 20px 12px 20px;
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
+  }
+  .toc { font-size: 13.5px; padding: 0 10px; }
+  .toc a {
+    display: block;
+    color: var(--text-soft);
+    padding: 5px 10px;
+    border-radius: 6px;
+    border-left: 2px solid transparent;
+  }
+  .toc a:hover { background: #e7eaee; color: var(--text); text-decoration: none; }
+  .toc a.h2 { font-weight: 600; color: var(--text); margin-top: 8px; }
+  .toc a.h3 { padding-left: 26px; font-size: 12.8px; }
+  .toc a.active { background: var(--accent-soft); color: var(--accent); border-left-color: var(--accent); font-weight: 600; }
+  .content {
+    flex: 1;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 40px 48px 100px 48px;
+    min-width: 0;
+  }
+
+  /* ============ Typography ============ */
+  h1 { font-size: 30px; line-height: 1.35; border-bottom: 2px solid var(--border); padding-bottom: 14px; margin: 8px 0 10px 0; }
+  .subtitle { color: var(--text-soft); font-size: 14.5px; margin-bottom: 8px; }
+  .meta-box {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 13.5px;
+    color: var(--text-soft);
+    margin: 20px 0 30px 0;
+  }
+  .meta-box b { color: var(--text); }
+  h2 {
+    font-size: 23px;
+    margin: 52px 0 16px 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    scroll-margin-top: 20px;
+  }
+  h2 .num { color: var(--accent); margin-right: 8px; font-family: var(--mono); font-size: 20px; }
+  h3 { font-size: 18px; margin: 34px 0 10px 0; scroll-margin-top: 20px; }
+  h4 { font-size: 16px; margin: 24px 0 8px 0; color: #24292f; }
+  p { margin: 12px 0; }
+  ul, ol { padding-left: 26px; margin: 10px 0; }
+  li { margin: 5px 0; }
+  strong { color: #111418; }
+  code {
+    font-family: var(--mono);
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 86%;
+    color: #953800;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  pre code { background: none; border: none; padding: 0; color: var(--text); }
+  .kw { color: #cf222e; }
+  .tp { color: #8250df; }
+  .fn { color: #8250df; }
+  .cm { color: #57606a; font-style: italic; }
+  .st { color: #0a3069; }
+
+  blockquote {
+    margin: 16px 0;
+    padding: 10px 18px;
+    border-left: 4px solid var(--accent);
+    background: var(--accent-soft);
+    border-radius: 0 8px 8px 0;
+    color: #24292f;
+  }
+  blockquote p { margin: 6px 0; }
+
+  /* ============ Tables ============ */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 16px 0;
+    font-size: 13.8px;
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 7px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--bg-soft); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #fafbfc; }
+  .table-scroll { overflow-x: auto; margin: 16px 0; }
+  .table-scroll table { display: table; white-space: normal; }
+
+  /* ============ Figures ============ */
+  figure { margin: 22px 0; text-align: center; }
+  figure img {
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+  }
+  figure.paper img { max-width: 720px; }
+  figure.small img { max-width: 560px; }
+  figcaption {
+    font-size: 13px;
+    color: var(--text-soft);
+    margin-top: 8px;
+    text-align: center;
+    line-height: 1.6;
+  }
+  .diagram {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #fff;
+    padding: 6px;
+  }
+  .diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+
+  /* ============ Callouts ============ */
+  .callout {
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin: 18px 0;
+    border: 1px solid;
+  }
+  .callout p { margin: 6px 0; }
+  .callout .callout-title { font-weight: 700; margin-bottom: 4px; }
+  .callout.tip { background: var(--green-soft); border-color: #91dcb2; }
+  .callout.tip .callout-title { color: var(--green); }
+  .callout.warn { background: var(--orange-soft); border-color: #eac54f; }
+  .callout.warn .callout-title { color: var(--orange); }
+  .callout.info { background: var(--accent-soft); border-color: #a5d6ff; }
+  .callout.info .callout-title { color: var(--accent); }
+  .callout.purple { background: var(--purple-soft); border-color: #d5c8f2; }
+  .callout.purple .callout-title { color: var(--purple); }
+
+  .analogy {
+    background: linear-gradient(135deg, #fffdf4, #fdf7ff);
+    border: 1px dashed #d5b96a;
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 18px 0;
+  }
+  .analogy .analogy-title {
+    font-weight: 700;
+    color: #9a6700;
+    margin-bottom: 6px;
+    font-size: 14.5px;
+  }
+  .analogy p { margin: 6px 0; }
+
+  /* ============ Misc ============ */
+  .ref-list { font-size: 13.5px; }
+  .ref-list li { margin: 8px 0; }
+  .badge {
+    display: inline-block;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 10px;
+    vertical-align: middle;
+    margin-left: 6px;
+  }
+  .badge.green { background: var(--green-soft); color: var(--green); }
+  .badge.blue { background: var(--accent-soft); color: var(--accent); }
+  .badge.orange { background: var(--orange-soft); color: var(--orange); }
+  .badge.purple { background: var(--purple-soft); color: var(--purple); }
+  .badge.red { background: var(--red-soft); color: var(--red); }
+  .tag-paper { color: var(--text-soft); font-size: 12px; }
+  .center { text-align: center; }
+  .toc-toggle { display: none; }
+  .formula {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-family: var(--mono);
+    font-size: 14px;
+    margin: 12px 0;
+    overflow-x: auto;
+  }
+  .dim { color: var(--text-soft); font-size: 13px; }
+
+  @media (max-width: 1100px) {
+    .sidebar { display: none; }
+    .content { padding: 24px 18px 80px 18px; }
+    .toc-toggle {
+      display: block;
+      position: fixed;
+      bottom: 18px;
+      right: 18px;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 50%;
+      width: 44px;
+      height: 44px;
+      text-align: center;
+      line-height: 44px;
+      font-size: 20px;
+      box-shadow: 0 2px 10px rgba(9,105,218,0.4);
+      z-index: 99;
+    }
+  }
+</style>
+</head>
+<body data-page-node-id="0O6smJqDBnHR08ikzk5zdf">
+<a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#toc-nav" class="toc-toggle" title="目录" data-page-node-id="cXIIn7kNBzHIMYN33VsFWl">☰</a>
+<div class="layout" data-page-node-id="9qHDNYFllV8q0gDtRMzF2U">
+
+<!-- ==================== 侧边栏目录 ==================== -->
+<nav class="sidebar" id="toc-nav" data-page-node-id="qazXCSPW5Vy8dopBUnfyIH">
+  <div class="sidebar-title" data-page-node-id="JaSeM87pWEebmZdvV4TEEK">📑 GIN × NCCL × DeepEP 技术详解</div>
+  <div class="toc" data-page-node-id="0czHaE4dyFxuLJx2kOR35C">
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch1" class="h2" data-page-node-id="ey5acRaELhLoFMPRIM7Voa">1. 引言：为什么突然人人都在谈 GIN</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch2" class="h2" data-page-node-id="KJGyfKuVSsCbUKrTFRfGdO">2. MoE 大模型的通信需求全景</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch2-1" class="h3" data-page-node-id="Izlx3s5V2fewYWuXaAFYqH">2.1 MoE 层的计算与通信流程</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch2-2" class="h3" data-page-node-id="9vHNbxyXuXx9uj38P58CbJ">2.2 四类通信需求与两种物理网络</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch2-3" class="h3" data-page-node-id="LoZdIwQILfIbdT1YlvKgky">2.3 通信难在哪：延迟、细粒度与融合</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch3" class="h2" data-page-node-id="LIkGDj3VTbVMQtIspK6qNN">3. 三层楼模型：NCCL、GIN、DeepEP 各自在解决什么问题</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch3-1" class="h3" data-page-node-id="hcZxLLTaaxT3XaoVtYATra">3.1 一个比喻：物流体系的三层楼</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch3-2" class="h3" data-page-node-id="vqVMLHQSxaCOlLFC9X8RBL">3.2 三层楼的精确对照表</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch3-3" class="h3" data-page-node-id="QCAKSyeWOqLucSJMcK1Vky">3.3 关系一句话总结</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch4" class="h2" data-page-node-id="Rbad4nLEz37cUalQciqkK1">4. NCCL：从“主机发起”到 Device API</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch4-1" class="h3" data-page-node-id="dk8xhfFy3DcC4sx1HSC1GR">4.1 NCCL 是什么</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch4-2" class="h3" data-page-node-id="dgbPTI8AliYnFn6ga5Tfld">4.2 传统 NCCL 的工作方式与瓶颈</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch4-3" class="h3" data-page-node-id="xkdwwV9LMJVHF3WQdVP8oA">4.3 NCCL 2.28 Device API：三种模式</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch4-4" class="h3" data-page-node-id="5G6aWMPLhQDXgFu7hbriem">4.4 GIN 在 Device API 中的位置</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch5" class="h2" data-page-node-id="KZMJa3QUfybuHOoOzi4cxn">5. GIN 原理详解</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch5-1" class="h3" data-page-node-id="lHfupiASIFe8pTs0L8u1Wo">5.1 问题背景：GPU 无法直接“打电话”给网卡</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch5-2" class="h3" data-page-node-id="iZPmgWJCOK7qAQLKWZ3JMb">5.2 GIN 的三层架构</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch5-3" class="h3" data-page-node-id="p1iRF5CbKpL7p4WCyRdifz">5.3 核心概念：窗口、上下文、信号、计数器</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch5-4" class="h3" data-page-node-id="aMmFMnYCesMn5JtRestQqI">5.4 GDAKI 后端：GPU 直控网卡</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch5-5" class="h3" data-page-node-id="HCTuofzN3MwuD0iavmlYny">5.5 Proxy 后端：CPU 代理兜底</a>
+       <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch5-6" class="h3" data-page-node-id="gPbsZeiLLMhiH15iA6jaIl">5.6 编程模型与代码示例</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch5-7" class="h3" data-page-node-id="FAdJ5i7qxL55KUEN4XWZTV">5.7 排序语义与内存模型</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch5-8" class="h3" data-page-node-id="CXF99LQFEVLVay3Wv28NU8">5.8 性能数据</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch6" class="h2" data-page-node-id="0EvzLd4KKIbjAwAbbdaaUD">6. DeepEP V1：MoE 专用通信库</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch6-1" class="h3" data-page-node-id="DmMurwVciiALIkBd7aNDUi">6.1 定位与设计目标</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch6-2" class="h3" data-page-node-id="NumxZ2ZDM2xdxMiLtAzkZ7">6.2 Normal（高吞吐）内核</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch6-3" class="h3" data-page-node-id="tiYvaEMrWIgMfL6FIsXGIV">6.3 Low-Latency（低延迟）内核</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch6-4" class="h3" data-page-node-id="dausEuJmJRGHnCbUxKcu2A">6.4 基于 NVSHMEM/IBGDA 的实现</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch7" class="h2" data-page-node-id="KhKlqcihUYGOa7INwBWZyP">7. DeepEP V2：切换到 NCCL GIN 后端</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch7-1" class="h3" data-page-node-id="cy5dRB8dTaZksNoAi5OFe0">7.1 V2 的演进动机与官方发布</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch7-2" class="h3" data-page-node-id="XI4yatKNhNutdO0C6EIda0">7.2 V2 的核心变化</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch7-3" class="h3" data-page-node-id="6hnrkolyoKCd30NL1V44Cc">7.3 V2 如何使用 GIN：NCCLGin 封装</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch7-4" class="h3" data-page-node-id="G1eWEGxFOBwH8P53gGuInw">7.4 V2 与 V1 对照</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch8" class="h2" data-page-node-id="hhjiBbLMpwwJHfJA1imxhw">8. GIN 与 NCCL、DeepEP 的关系总结</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch8-1" class="h3" data-page-node-id="dxy1T9zZ7DCz4LGPKjSNQ7">8.1 三者关系的三个视角</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch8-2" class="h3" data-page-node-id="7eTtfFDXSvuB1SOg9iqFXq">8.2 演进时间线</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch8-3" class="h3" data-page-node-id="Vp2xpO5DS7Oj75uRdbMseG">8.3 常见误区澄清</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch9" class="h2" data-page-node-id="ZIEwSH6JLu5uAxargMNCBr">9. 参考资料汇总</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch10" class="h2">10. 补充调研和易混淆点辨析</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch10-1" class="h3">10.1 RDMA 内核旁路与 CPU 参与辨析</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch10-2" class="h3">10.2 GIN 完成同步 vs 传统 RDMA CQ</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch10-3" class="h3">10.3 NVSHMEM/IBGDA 的背景与 GIN 内化的收益</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch10-4" class="h3">10.4 DeepEP V2 SM 缩减与 0 SM 原理</a>
+    <a href="https://p26-flow-sign.byteimg.com/tos-cn-i-ik7evvg4ik/be09c847ebae43a190c6e4d0e6240cf1.html?lk3s=8e244e95&amp;rcl=20260908155010C971FC923500E42F5849&amp;rrcfp=1860f75c&amp;x-expires=1789458610&amp;x-signature=iw3uo8BdkIjG2ouNkC6MMYR%2FxyQ%3D#ch10-5" class="h3">10.5 HT 与 LL 通信规划及 V2 API 合一</a>
+  </div>
+</nav>
+
+<!-- ==================== 正文 ==================== -->
+<main class="content" data-page-node-id="m4oneFomXUiUAnftPTSFdg">
+
+<h1 data-page-node-id="dyLpASw3YizBPkyKAI6DCI">GIN 与 NCCL、DeepEP 深度解析<br data-page-node-id="bK6DNICaVaMpAXkvkBPTHn"><span style="font-size:19px;color:var(--text-soft)" data-page-node-id="PTDfWrRNXdp9OStAVQFsMn">MoE 大语言模型在 NVIDIA 集群上的通信栈全景</span></h1>
+
+<div class="subtitle" data-page-node-id="author-line-xjd">资料整理作者：谢金豆</div>
+
+<div class="subtitle" data-page-node-id="CGAdMkM1rN8RR1SC6aAV19">基于论文 <i data-page-node-id="hrIetb1zVsz4SsvzdYhu26">GPU-Initiated Networking for NCCL</i>（arXiv:2511.15076v2，NVIDIA，2025.11）及相关公开资料整理 · 整理日期：2026-09</div>
+
+<div class="meta-box" data-page-node-id="Rs6JW3w6JvGWzWcrY7ySjI">
+<b data-page-node-id="0tu3KckWGckkrwLWtz9VmY">本文依据的核心资料：</b>
+<ul style="margin:6px 0 0 0" data-page-node-id="rIk4F61NjT92O8Fz14pG7Q">
+<li data-page-node-id="N0KHfHkBGeT2mG9koPfEJc">论文：Hamidouche et al., <i data-page-node-id="GHXEOBrllrjxQ5351WDNCF">GPU-Initiated Networking for NCCL</i>, NVIDIA Corporation, <a href="https://arxiv.org/abs/2511.15076" data-page-node-id="63i1Ju6RUzJAHn8sBCALPq">arXiv:2511.15076v2</a>（2025-11-24）</li>
+<li data-page-node-id="yNAUCTUIwtBuvsqtV7OEw9">NVIDIA 技术博客：<a href="https://developer.nvidia.com/blog/fusing-communication-and-compute-with-new-device-api-and-copy-engine-collectives-in-nvidia-nccl-2-28/" target="_blank" data-page-node-id="DEP3gSQmfo3YFSWsSediin">Fusing Communication and Compute with New Device API and Copy Engine Collectives in NVIDIA NCCL 2.28</a>（2025-11-10）</li>
+<li data-page-node-id="oo51W6p3PJqiHxZcEeHBBa">DeepEP 仓库：<a href="https://github.com/deepseek-ai/DeepEP" target="_blank" data-page-node-id="roCObF0HyeKFeK6H4W1ON8">deepseek-ai/DeepEP</a>（V2 发布 PR <a href="https://github.com/deepseek-ai/DeepEP/pull/605" target="_blank" data-page-node-id="diotqJ7wlAdXzOZzYgi20K">#605</a>，2026-04）</li>
+<li data-page-node-id="KnJVEe99CM9eOvCD64YUSD">解读文章：<a href="https://blog.csdn.net/eloudy/article/details/155099857" target="_blank" data-page-node-id="OnwyePlvaRYQDmyYMQcXMx">CSDN: GPU-Initiated Networking for NCCL 全文解读</a>、<a href="https://zhuanlan.zhihu.com/p/2038780633086957390" target="_blank" data-page-node-id="PA1Hq1rfBw0ERMHxUyS0av">知乎: GIN 关键技术体系与实现路径</a>、<a href="https://zhuanlan.zhihu.com/p/2043660020324290824" target="_blank" data-page-node-id="eKiJ2PKaZXq6yTOLTCOM6W">知乎: 【DeepEP V2】07 - NCCL GIN Backend</a>、<a href="https://www.papercache.org/papers/mlsys/networking/2025/11/01/gpu-initiated-networking-for-nccl" target="_blank" data-page-node-id="MCvptWKFLcfOXrvWpF00B6">PaperCache 论文分析</a></li>
+</ul>
+</div>
+
+<!-- ================================================================ -->
+<h2 id="ch1" data-page-node-id="ASdpp9alOqq1aYCHECYErO">1. 引言：为什么突然人人都在谈 GIN</h2>
+
+<p data-page-node-id="vjBt1Um2M2HxMwnE0TIYDh">2025 年 11 月，NVIDIA 发布 NCCL 2.28，悄然引入了一个名为 <strong data-page-node-id="a4VrFKpUlN3eVnZj1Jcsln">Device API</strong> 的新编程接口，其中包含一个此前从未在 NCCL 中出现过的能力：<strong data-page-node-id="RlxCivcbyCQv0TJHnS62tr">GPU-Initiated Networking（GIN，GPU 发起网络）</strong>——让 GPU 线程在 CUDA kernel 内部直接对网卡下发 RDMA 指令，全程不需要 CPU 参与。</p>
+
+<p data-page-node-id="ygokVJm6AuRKZse2T1TfAx">随后发生了两件标志性事件，让 GIN 从“NCCL 内部新特性”变成了行业焦点：</p>
+<ul data-page-node-id="oB8r4bkib5xtP2qQFzUEFH">
+<li data-page-node-id="qHUd6pGbXlvRcgUwPi72Rz"><strong data-page-node-id="GzIpsSzyYLiTvca1BbVplW">NVIDIA 官方论文落地</strong>：NVIDIA 团队发表 <i data-page-node-id="VA4S1zFdG2HmvTd2v2Bi4H">GPU-Initiated Networking for NCCL</i>（<a href="https://arxiv.org/abs/2511.15076" data-page-node-id="ddMjkhzfRHDBFq17VCBSex">arXiv:2511.15076</a>），系统阐述了 GIN 的架构、语义与性能，并用 DeepEP 的迁移验证了生产可用性；</li>
+<li data-page-node-id="KfpODLTeu88JjeQwdxvN1S"><strong data-page-node-id="fNJbpD3Fhwr2SsNFA5TJJf">DeepSeek 官方切换后端</strong>：2026 年 4 月，DeepSeek 在 <a href="https://github.com/deepseek-ai/DeepEP/pull/605" target="_blank" data-page-node-id="LVSOJFEMFSzPCc5f5PXCKS">DeepEP V2（PR #605）</a>中宣布：DeepEP 的底层后端从自维护的 NVSHMEM <strong data-page-node-id="ikESoqDAA3sEAU9auHGkIP">正式切换为 NCCL GIN 后端</strong>。</li>
+</ul>
+
+<p data-page-node-id="rZNZLAvSIKKThh4VgtBYVm">换句话说：NCCL 提供了新能力（GIN），DeepEP（MoE 通信的事实标准库）第一时间接住了它。这是一条“运行时层提供原语 → 应用层迅速采纳”的典型案例。</p>
+
+<p data-page-node-id="di3iyWVRJxroWYLZqDs3iI">本文将从 <strong data-page-node-id="wyoexavHnDXp55anZLRMkf">MoE 大模型在 NVIDIA 集群上的通信需求</strong> 出发，自顶向下讲清楚三件事：</p>
+<ol data-page-node-id="6aM8o4CEXBFzqwBDgdkKRG">
+<li data-page-node-id="roU1ompGlbB9iah4VF5Hmn"><strong data-page-node-id="Xf49bpNUhznQR0zywzNYQy">NCCL、GIN、DeepEP 分别在解决什么层面的问题、构建了什么层面的工具</strong>（附通俗但严谨的比喻）；</li>
+<li data-page-node-id="ShjEGpDZ0r6OR1PmamgzBw"><strong data-page-node-id="9loqMtRWtBJFknvHp7wFcj">GIN 的原理级详解</strong>：问题背景、架构、语义、双后端、性能；</li>
+<li data-page-node-id="LsV9Y06DBNO3HL9CAKphAN"><strong data-page-node-id="0h2zuLkznb73VLb3ABY2NI">GIN 与 NCCL、DeepEP（V1/V2）的关系</strong>：包括 DeepEP 从 NVSHMEM 迁移到 GIN 的完整技术路径。</li>
+</ol>
+
+<!-- ================================================================ -->
+<h2 id="ch2" data-page-node-id="XjRtA7TNbyJ5CAN9DBr4Fi">2. MoE 大模型的通信需求全景</h2>
+
+<h3 id="ch2-1" data-page-node-id="FDLeyxVXAAuFfev2kSAiSc">2.1 MoE 层的计算与通信流程</h3>
+
+<p data-page-node-id="1uiosbFJ8ohGmzERyseqYX">要理解 GIN，必须先理解它服务的对象——MoE（Mixture-of-Experts，混合专家）模型的通信模式。以 DeepSeek-V3 为代表的现代 MoE 大模型有数百个专家（DeepSeek-V3 有 256 个路由专家），每个 token 经门控网络（router）选出若干个专家（top-k）进行计算。</p>
+
+<p data-page-node-id="z9jFmaRcxg2vJ166VsW3dC">当模型规模大到必须把<strong data-page-node-id="Q2uZKaE6FFuFtHXHRWY65t">不同专家放到不同 GPU 上</strong>（即专家并行，Expert Parallelism, EP）时，每个 MoE 层都会产生两段通信：</p>
+
+<ul data-page-node-id="5y9uGwCOD8lb6LQhrwFDYv">
+<li data-page-node-id="nfI4aIXxJRlhOBQH79J5VC"><strong data-page-node-id="RlHFQfC6Rsh44CIxY2l4HE">Dispatch（分发）</strong>：每个 GPU 上的 token 按路由结果，发送给专家所在的远端 GPU。通信模式是<strong data-page-node-id="rsJlVVYchXDC1mbHz5oNE7">动态、不规则的 all-to-all</strong>——每个 token 去哪、发多大的包，都是运行时由门控网络决定的，通信前无人知晓。</li>
+<li data-page-node-id="VR4MiRLaNyJG6IF3mM0m42"><strong data-page-node-id="QeULnwBcVqFFqO9DEq0Z3m">Combine（合并）</strong>：专家算完后，把输出按 top-k 权重加权和，送回 token 的原始 GPU，同样是不规则 all-to-all。</li>
+</ul>
+
+<div class="callout info" data-page-node-id="CEsKWDRdWRgHVmX7HKDcFe">
+<p class="callout-title" data-page-node-id="wfIbCHUSrZWBB7KE2jY9Kc">关键数字（以 DeepSeek-V3 配置为例）</p>
+<p data-page-node-id="hcW7kNSxCAQWYLAiMxZSCO">hidden size = 7168。一个 BF16 token ≈ 14 KB；FP8 token ≈ 7 KB。训练时每 micro-batch 4096 tokens/rank、top-8 专家——这意味着<strong data-page-node-id="cugSuKJLGlgr6qYRcxIqCw">每个 MoE 层、每张 GPU 都要发出约 4096×8 份 token 拷贝</strong>，目的地在运行时才知道。模型有几十层 MoE，训练中每秒要完成成千上万次这种不规则 all-to-all。</p>
+</div>
+
+<h3 id="ch2-2" data-page-node-id="R0bXohAAsv5Wv6SfXMWI7v">2.2 四类通信需求与两种物理网络</h3>
+
+<p data-page-node-id="tbQ4UQRCUmhJbz36nurYCF">把一个 MoE LLM 在 NVIDIA 集群上完整跑起来，通信需求可以分成四类：</p>
+
+<div class="table-scroll" data-page-node-id="y1whz02PcOwpXzCAEYAjH6"><table data-page-node-id="kXgrSJ20Zkrz48jIWGCiV1">
+<thead data-page-node-id="sNzEfRkoblNn45OlTT2SiQ"><tr data-page-node-id="W5uEzFIqREhUMzfrwqIJzt"><th data-page-node-id="Fo74hxk8QGVf6lSiLjDU6G">通信场景</th><th data-page-node-id="R2lT9vM7D0IYo0GRrtbM1l">典型操作</th><th data-page-node-id="MqIEAF7fd89Sae9W5RMFLp">特点</th><th data-page-node-id="9HOYW2b4a9PJfpxGKAqBsl">传统执行者</th></tr></thead>
+<tbody data-page-node-id="Tt2zUYpPkw4LDpDvBvHe5z">
+<tr data-page-node-id="sdQCHeFWWkzvF0yDyyzP2V"><td data-page-node-id="8LaFICcUUaojULRi8gpAW2"><b data-page-node-id="VFIRv6eIGT065JdHoUpMSB">① 大规模集合通信</b></td><td data-page-node-id="AmR4BdEw8BNy2HO8qZrTki">AllReduce / AllGather / ReduceScatter（梯度同步、TP/PP 参数搬运）</td><td data-page-node-id="LO9Am4jvsuOHfwZ7xNAaEc">数据量大、模式固定、可预先规划</td><td data-page-node-id="NAy0ev2Ma0qtqsg8rfRV23">NCCL（主机发起）</td></tr>
+<tr data-page-node-id="58QXqWNKb73rWaYsNncoen"><td data-page-node-id="oiq8xxLdMGbBWaOuU0D0kl"><b data-page-node-id="XW5sG1eO307xRmB9M4pkqt">② MoE 不规则 all-to-all</b></td><td data-page-node-id="Fq2dz3T2myHpUrHQAJi4MZ">Dispatch / Combine</td><td data-page-node-id="g9ha7S3YiTIV7LYQHXXmtS">数据量随路由变化、模式运行时才确定、要求低延迟</td><td data-page-node-id="EwRc8hPBnOurAI2aNT78Si">DeepEP 等专用库</td></tr>
+<tr data-page-node-id="xG5RhFTZiamp3nL1a7Eymn"><td data-page-node-id="w9S2O7vrZGkSACAVWmlvGx"><b data-page-node-id="BHNOo2YnzLzPkWcIQNBtt4">③ 节点内高速互联</b></td><td data-page-node-id="4UUi7DyMCuLKWKEcGQmnMb">NVLink 域内 token 转发、多层转发</td><td data-page-node-id="HVRkHEcUuNS0lU7lkIRlog">带宽极高（H100: 900 GB/s）</td><td data-page-node-id="387t68PTVZYxHsvkZRxEaF">NVLink P2P / NVSHMEM / CUDA P2P</td></tr>
+<tr data-page-node-id="FiAEi5sBuHFao2QfOmzxBT"><td data-page-node-id="it6N3O8eXCZqozPxnYjavc"><b data-page-node-id="HCMZbuiqOCuCUfCy8vCGUD">④ 跨节点细粒度 RDMA</b></td><td data-page-node-id="VnHKGPRkdiRRmwUZf2YY3T">单个 token（7–14 KB）的跨节点投递、信令同步</td><td data-page-node-id="KSPzoDOlwzXZRcUX2K2zpc">消息小、频次极高、对延迟敏感</td><td data-page-node-id="GX4jbCabX92JKQPVlmRM7r">IBGDA / NVSHMEM → <b data-page-node-id="FhOVVeER3uV9NxOzHWBdDq">现在有了 GIN</b></td></tr>
+</tbody></table></div>
+
+<p data-page-node-id="BIK4I0sFgJumMmuVKEf5Hi">而这些通信物理上只走过两种网络：<strong data-page-node-id="OtoZGZd9nUqhg1v94ytC3M">节点内的 NVLink/NVSwitch</strong>（H100 上双向 900 GB/s）和<strong data-page-node-id="m0VPHpEuW5qUGXFAPwRGXd">节点间的 InfiniBand/RoCE</strong>（CX7 400 Gb/s ≈ 50 GB/s）。两者带宽相差一个数量级，DeepEP 的“非对称域带宽转发”内核正是为这种 NVLink→RDMA 的带宽断层设计的。</p>
+
+<h3 id="ch2-3" data-page-node-id="CAZROfF3nFQ5jPJ7RSVF5f">2.3 通信难在哪：延迟、细粒度与融合</h3>
+
+<p data-page-node-id="i0FOzCImSOKV1Skg7BWIpB">为什么现有工具不够用？论文（§I、§II）归纳了传统主机发起模型的三宗罪：</p>
+
+<ol data-page-node-id="qq6gFhqeAy6zeLRygM4Jvm">
+<li data-page-node-id="WaW3u6B8Be1nYtKlBrVABS"><strong data-page-node-id="fRCDuoURS2gMwIMrRQlXGf">每次通信都要 CPU 协调 + kernel 启动</strong>：传统 NCCL 每个通信调用都需要主机-设备同步与独立 kernel 启动，开销在微秒级。对训练的大块 AllReduce 无所谓，但对解码阶段 128 个 token 的小批次（通信本身只要几十微秒），这个开销占比就不可忽视。</li>
+<li data-page-node-id="53IxCGw1RBilGmfVtuO4Gz"><strong data-page-node-id="mVpKe9tgnxo1GzUMDfyfbu">计算与通信无法融合</strong>：传统模式下“算”与“传”是两个 kernel，中间必须回到主机调度。MoE 想把“FP8 量化 → 发送 → 接收 → 反量化”做成一个 kernel 内的流水线，主机发起模型做不到。</li>
+<li data-page-node-id="yC5be8JCRZWXcANlSyWIET"><strong data-page-node-id="hZUmeWVMkV1WAl7BcjOs86">路由是运行时决定的</strong>：MoE 的 dispatch 目的地址由 GPU 上的门控计算得出。若通信要经 CPU 转发，就要先同步路由结果回 CPU、CPU 再发起传输——数据与控制信息在 GPU↔CPU 之间来回搬运，成为延迟与抖动的主要来源。</li>
+</ol>
+
+<p data-page-node-id="rrvDycqEJUkHUymHS53J0Q">这三条正是 GIN 的设计出发点：让 GPU <strong data-page-node-id="eTsMahOJcXHEebjoBsxHLE">在自己算出路由的那一刻，直接在 kernel 里把数据发向远端</strong>。</p>
+
+<!-- ================================================================ -->
+<h2 id="ch3" data-page-node-id="D3Wkq6KIP9OpY6mbjF8mkB">3. 三层楼模型：NCCL、GIN、DeepEP 各自在解决什么问题</h2>
+
+<h3 id="ch3-1" data-page-node-id="tU8BHQjUvKLxif28rpC4ez">3.1 一个比喻：物流体系的三层楼</h3>
+
+<div class="analogy" data-page-node-id="7wPJCUSKImbbyGI4lbqHpu">
+<p class="analogy-title" data-page-node-id="ctrCIAVYwkynBlc9sYdYfJ">🚚 比喻：把 MoE 集群想象成一家全国连锁的快递体系</p>
+<p data-page-node-id="6tpqA839msCWaoMDh0qU8T"><strong data-page-node-id="qVCHhKugdWQ0aI1rYu575U">DeepEP = 业务层（快递公司的“分拣-配送-回收”业务系统）</strong>。它最懂“货物”（token）该怎么分：每个包裹（token）要看运单（路由结果）决定去哪个分拣中心（专家 GPU），到站后还要按权重回寄（combine）。它设计了整套业务流程——大促期间（训练/prefill，包裹多）用“干线+落地配”两级分拨（NVLink 转发 + RDMA），日常零单（decode，包裹少）用点对点直送（纯 RDMA mesh）。但它自己不养车队、不修路。</p>
+<p data-page-node-id="Tly24zC8jZlF982bNjQGP6"><strong data-page-node-id="MNIzIlK0HrLU9svHB2jq0E">GIN = 驾驶层（让每辆车的司机自己能导航、踩油门）</strong>。过去司机（GPU）想发车必须先打电话给调度中心（CPU）：“我要寄一个 14 KB 的包裹到 3 号仓”——调度中心登记、派单、通知装货，来回沟通本身就要几微秒，车还没动。GIN 给司机直接配了车钥匙和对讲机：司机在算出运单的<strong data-page-node-id="cWtyeDYB9jl6k4CeBcSL8Z">同一秒</strong>，自己发动车子把货送出去，调度中心根本不用知道。它还提供了一套标准“驾驶动作”——put（送货上门）、signal（敲门通知）、counter（本地回单）、flush（确认这趟车都发出去了）。</p>
+<p data-page-node-id="ybiCU8VqRRmOLaPOPxnLyj"><strong data-page-node-id="01xDvy9FKLk4NNda3a1dIQ">NCCL = 基建层（道路、车队、收费站与管理规则）</strong>。它是全国路网的总运营方：修了三级公路体系（LSA 市内道路 / NVLink SHARP 多播高速 / GIN 跨城干线），统一了车辆注册（communicator）、仓库登记（window 注册）、车队调度规范（拓扑感知算法），还管事故处理（容错）和车流调度（弹性）。GIN 不是取代 NCCL，而是 NCCL 在自己的体系里<strong data-page-node-id="j6ea9klvVAHO6qixSGRBib">新修的一条“司机自助通道”</strong>。</p>
+</div>
+
+<div class="callout tip" data-page-node-id="xTEEgdKWVgoqM8GUFkjOjT">
+<p class="callout-title" data-page-node-id="1cwNBwPpE9v4oCDBSiYzEy">比喻的严谨性说明</p>
+<p data-page-node-id="zb4NbEpU0gRXpirU7EeYtm">这个比喻中每个元素都有严格对应：调度中心=CPU 主机线程；打电话派单=host-device 同步 + kernel launch；司机自助发车=device-initiated put；敲门通知=signal（远程完成通知）；本地回单=counter（本地完成跟踪）；仓库登记=内存窗口注册；三级公路=Device API 的 LSA / Multimem / GIN 三种模式。唯一被比喻省略的细节是 Proxy 后端（见 §5.5）——相当于司机仍把货交给门口的代寄点（CPU 代理线程），但业务流程（设备 API）不变。</p>
+</div>
+
+<h3 id="ch3-2" data-page-node-id="ilcqjUSSbsNcllAPAydcnt">3.2 三层楼的精确对照表</h3>
+
+<div class="table-scroll" data-page-node-id="ACjpGC1DQdQyWd8KlHilYF"><table data-page-node-id="GDwrOcgfYXqwAOn5t6csUO">
+<thead data-page-node-id="7uRk0dat38qpEYNtUnP0fp"><tr data-page-node-id="ZwLKFXNusmTUuqJblHNfcL"><th data-page-node-id="LGlURv2SnuuNvKHGhtbCC3">维度</th><th data-page-node-id="QTQzJ6PcdLcVHAviy6nQJk">NCCL（含传统集合通信 + Device API 基座）</th><th data-page-node-id="fcCnvwzcqPFYqP5930JUeE">GIN（NCCL 2.28 Device API 的网络模式）</th><th data-page-node-id="7R9iYvAujkxE0Z36C6Q6qF">DeepEP（MoE 专用通信库）</th></tr></thead>
+<tbody data-page-node-id="CgrC7Et6vQXr3ikU5sHTp2">
+<tr data-page-node-id="Blv9LxuJvxDekiuBn7jhOt"><td data-page-node-id="cN4DSKBCmaWSA5t282TyRX"><b data-page-node-id="7epGPfEUy7aBNpsdfaO8fB">解决什么层面的问题</b></td><td data-page-node-id="G7BqNVAUsouCmBO7oxWggk">分布式训练/推理的<strong data-page-node-id="h3sdEmw4guFTljkGETrEp3">通用集合通信基础设施</strong>：AllReduce、AllGather 等规则模式的高效实现 + 容错、弹性、拓扑感知等生产级能力</td><td data-page-node-id="RHJAvnMOo6BNCyeequfBOp">让 GPU <strong data-page-node-id="hjlU5XoXdF5pCxHqX7cF2g">不经 CPU 直接管网卡</strong>：提供 kernel 内可调用的单边 RDMA 原语（put/signal），解决细粒度、低延迟、计算通信融合问题</td><td data-page-node-id="O9Ir4PQl5ialuQWSvKd5JZ">MoE 的<strong data-page-node-id="Fbti0Jgao1N1DJcSepBtVk">业务通信</strong>：dispatch/combine 不规则 all-to-all 的具体算法与 kernel 实现（token 去重、分层转发、FP8 量化融合等）</td></tr>
+<tr data-page-node-id="2kCHsZaRRQMtG3cpBGf0O1"><td data-page-node-id="voJoPql9uijpcBHR8hbncC"><b data-page-node-id="D4EfLUTD428SEzFALdN3wb">构建了什么层面的工具</b></td><td data-page-node-id="36GOecGcbwNTrZlxlzhW43">通信运行时（runtime）+ 通信器/资源管理体系</td><td data-page-node-id="Zv8nyhhGOvCUlBdXk7pVVy">设备端通信原语库 + 可插拔网络后端（GDAKI/Proxy）</td><td data-page-node-id="cZ8ZsAWjMPBNN5m6fBYuC4">面向 PyTorch/推理框架的 Python/C++ 库（deep_ep）</td></tr>
+<tr data-page-node-id="ZQDJG3lLsGFyYtudLEs64f"><td data-page-node-id="0cBymiK8uV21UktKu6WNZC"><b data-page-node-id="Tdr90YvZaSfsKhvHI7OsuJ">发起方</b></td><td data-page-node-id="6qr0MeVcTOqXzgwoT7CULy">传统路径：CPU（主机发起）；Device API：GPU</td><td data-page-node-id="GMZvSfjx720KDR7UW9zXPU">GPU（kernel 内线程）</td><td data-page-node-id="ei3Dgvut5e5O1tiQ69w0xS">GPU（DeepEP kernel 调用底层原语）</td></tr>
+<tr data-page-node-id="GQYhvTjpD9IHxkdJVFMsL7"><td data-page-node-id="j1YExEvCGHJpQZy8mdmI2Z"><b data-page-node-id="LEErXluLDdKRdPSWvz5Zev">底层依赖</b></td><td data-page-node-id="vLFsLbRTS1yGLh70nPxtCl">NVLink、PCIe、IB/RoCE（经网络插件）</td><td data-page-node-id="zvBDzEY9XkdVEtEwtGckTA">IB/RoCE RDMA；GDAKI 后端依赖 DOCA GPUNetIO</td><td data-page-node-id="sLWIjvLUjbkVqGVbM6hGff">V1: NVSHMEM/IBGDA；<b data-page-node-id="6i2WdQr4WbF2zYoZthUDYX">V2: NCCL GIN</b></td></tr>
+<tr data-page-node-id="Vjx6ejFqeR83SOTpMZpGo6"><td data-page-node-id="xyPySarrSxOanpv4im1iys"><b data-page-node-id="dDErjNYHhbI2wkOLbqteUW">典型用户</b></td><td data-page-node-id="V1w2iIkD5AYy9pkDbQ4R01">PyTorch 等所有分布式框架</td><td data-page-node-id="kyu9XyZUReTLL3BdXmnCh8">DeepEP、pplx-kernels 等库；未来的 PyTorch/vLLM/SGLang</td><td data-page-node-id="njPEipAwDE1Z3mkXmUSfYv">Megatron-LM、vLLM、SGLang 等训练/推理框架</td></tr>
+<tr data-page-node-id="oIitMmCfghBQlWdNeU5yW5"><td data-page-node-id="Z73mWhEg89hMZF9QVKHJVp"><b data-page-node-id="DZx7JC8K2y8BudaUmZTqMu">发布方</b></td><td data-page-node-id="LprsTETNwkjZOwm6A1rnLQ">NVIDIA</td><td data-page-node-id="VrozzH5EnEvhL7zPR5rAti">NVIDIA（NCCL 2.28.7+）</td><td data-page-node-id="YPPd9AXwaRVeJtd3eOqBWg">DeepSeek（2025.02 开源，2026.04 发布 V2）</td></tr>
+</tbody></table></div>
+
+<h3 id="ch3-3" data-page-node-id="B8KgyR7UuWx3N3GmOIeskb">3.3 关系一句话总结</h3>
+
+<blockquote data-page-node-id="1dkr8ySkhtKA2wVzd6mYfl">
+<p data-page-node-id="QxcdjUQxhX7DEnjs1NaRuu"><strong data-page-node-id="AAyxWWESqWKpqzt7PBTNJZ">NCCL 是地基与路网，GIN 是 NCCL 新铺的“GPU 直达网卡”高速通道，DeepEP 是跑在这条通道上的 MoE 专列。</strong>V1 时代专列自带铁轨（NVSHMEM）；V2 时代 DeepSeek 发现 NCCL 把标准轨道（GIN）修好了，于是拆掉自养铁轨、换上标准轨——运力不减（性能持平甚至更好），但养路成本（运维多套运行时的复杂度）大幅下降。</p>
+</blockquote>
+
+<!-- ================================================================ -->
+<h2 id="ch4" data-page-node-id="DOPOoomsEMFYRbEcUzNXEF">4. NCCL：从“主机发起”到 Device API</h2>
+
+<h3 id="ch4-1" data-page-node-id="g6yRkKOlxAKcdf3DKZ1MDF">4.1 NCCL 是什么</h3>
+
+<p data-page-node-id="AMHNgwEOn6EWUr3UKsNVEc"><a href="https://github.com/NVIDIA/nccl" target="_blank" data-page-node-id="rLaN3W4F0OPfdisHkfCw74">NCCL</a>（NVIDIA Collective Communications Library）是 GPU 集合通信的事实标准运行时，提供拓扑感知的 allreduce、allgather、reduce-scatter、broadcast 实现，被 PyTorch 分布式、Megatron-LM、DeepSpeed 等所有主流框架依赖。论文称其为“the de facto communication runtime for GPU-based machine learning”。</p>
+
+<h3 id="ch4-2" data-page-node-id="g410F8KBpwGFMfq04F46eC">4.2 传统 NCCL 的工作方式与瓶颈</h3>
+
+<p data-page-node-id="Y3gpuiFlOHDnfo1KXwlTlp">论文（§II-D）描述了传统 NCCL 的执行模型，可用下图概括：</p>
+
+<figure class="diagram" data-page-node-id="RVuzTQ0JWcRZDEvFfc3zYO">
+<svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" data-page-node-id="Q2FtRxDNDO5VxJCGKqFT5z">
+  <defs data-page-node-id="99q5TOzio0yuBZ3W1OTYlf">
+    <marker id="arrB" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" data-page-node-id="vAM2s4Ww9FSEAQrJPXyYGk"><path d="M0,0 L8,3 L0,6 Z" fill="#57606a" data-page-node-id="cf0AumtTFaGW0uW6wdo6Ak"></path></marker>
+    <marker id="arrR" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" data-page-node-id="5U6cnuHTe7bG3BoQyTKBvd"><path d="M0,0 L8,3 L0,6 Z" fill="#cf222e" data-page-node-id="inOawJZVBfKV8PpjSTlJOO"></path></marker>
+  </defs>
+  <text x="430" y="26" text-anchor="middle" font-size="15" font-weight="bold" fill="#1f2328" data-page-node-id="QAGuCzpIA7KA5FEmJAHmt9">传统 NCCL（主机发起模型）：一次通信的完整旅程</text>
+
+  <!-- App -->
+  <rect x="30" y="60" width="150" height="58" rx="8" fill="#ddf4ff" stroke="#0969da" stroke-width="1.5" data-page-node-id="5sUTZAK31MRPz74BkHMuiu"></rect>
+  <text x="105" y="84" text-anchor="middle" font-size="13" font-weight="bold" fill="#0969da" data-page-node-id="cxwEpwm9o8ogyfm6tTXGDN">应用程序</text>
+  <text x="105" y="102" text-anchor="middle" font-size="11" fill="#57606a" data-page-node-id="RiQkantk7E3lFGDafv7WbT">ncclAllReduce()</text>
+
+  <!-- CPU -->
+  <rect x="30" y="160" width="150" height="86" rx="8" fill="#fff8c5" stroke="#9a6700" stroke-width="1.5" data-page-node-id="tEe69F1DkLrIZs4wFBZFTg"></rect>
+  <text x="105" y="182" text-anchor="middle" font-size="13" font-weight="bold" fill="#9a6700" data-page-node-id="iDQ6bT398DZvUU2leklheS">CPU 主机线程</text>
+  <text x="105" y="200" text-anchor="middle" font-size="11" fill="#57606a" data-page-node-id="xgUig4EZ3nv30JjdxA0VZ6">1. 启动通信 kernel</text>
+  <text x="105" y="216" text-anchor="middle" font-size="11" fill="#57606a" data-page-node-id="zslWvvoBuvl6VKjpkpXchZ">2. Proxy 线程轮询队列</text>
+  <text x="105" y="232" text-anchor="middle" font-size="11" fill="#57606a" data-page-node-id="SF08ivKgUMS8yKtx2bVslA">3. 把描述符提交给网卡</text>
+
+  <!-- GPU -->
+  <rect x="300" y="160" width="180" height="86" rx="8" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.5" data-page-node-id="jQfO2QkHNvDErb6lSddWdB"></rect>
+  <text x="390" y="182" text-anchor="middle" font-size="13" font-weight="bold" fill="#1a7f37" data-page-node-id="hQ5viRgvSViKi066PIdknz">GPU 通信 kernel</text>
+  <text x="390" y="200" text-anchor="middle" font-size="11" fill="#57606a" data-page-node-id="TXjKDeMQWpk8kC1bCZlT2Z">把通信描述符写入</text>
+  <text x="390" y="216" text-anchor="middle" font-size="11" fill="#57606a" data-page-node-id="5NJK2nLtUopRsbEDVqiDIF">主机可见队列，然后</text>
+  <text x="390" y="232" text-anchor="middle" font-size="11" fill="#57606a" data-page-node-id="wYqU5NLkfK60tagFKBiXP0">等待 CPU 执行网络操作</text>
+
+  <!-- NIC -->
+  <rect x="590" y="160" width="120" height="86" rx="8" fill="#fbefff" stroke="#8250df" stroke-width="1.5" data-page-node-id="y9scDBDqzGjwtoLE4rDugd"></rect>
+  <text x="650" y="192" text-anchor="middle" font-size="13" font-weight="bold" fill="#8250df" data-page-node-id="UiDF6l7yzCVuIGeB72GYHM">IB/RoCE 网卡</text>
+  <text x="650" y="210" text-anchor="middle" font-size="11" fill="#57606a" data-page-node-id="55cXC1LF6TRBV0G3w6KQmu">RDMA 传输</text>
+
+  <!-- Remote GPU -->
+  <rect x="590" y="50" width="120" height="58" rx="8" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.5" data-page-node-id="r45pdYQf1bmuouGEAXZDGP"></rect>
+  <text x="650" y="74" text-anchor="middle" font-size="13" font-weight="bold" fill="#1a7f37" data-page-node-id="V1tBRPSF7eV6cf466CMHw6">远端 GPU</text>
+  <text x="650" y="92" text-anchor="middle" font-size="11" fill="#57606a" data-page-node-id="Uo1xWFgI2jb3XizP1PFuUH">接收数据</text>
+
+  <!-- arrows -->
+  <path d="M105,118 L105,152" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrB)" fill="none" data-page-node-id="0BS5lVDQM71LIJwd8OMfQP"></path>
+  <path d="M180,89 L390,89 L390,152" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrB)" fill="none" data-page-node-id="Be8dsciHbWx9w5xBmaNp2L"></path>
+  <path d="M390,246 L390,268 L105,268 L105,252" stroke="#cf222e" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrR)" fill="none" data-page-node-id="UeYH7TT0RicukHzUt8dF6K"></path>
+  <path d="M180,203 L580,203" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrB)" fill="none" data-page-node-id="CRfEzLgwuCu1BCrvteTVBn"></path>
+  <path d="M650,160 L650,116" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrB)" fill="none" data-page-node-id="qCwj74yo08SFDoqC6BZ7g1"></path>
+
+  <text x="755" y="80" font-size="11" fill="#cf222e" data-page-node-id="EvXJsBlfUz05xb7xlt9hNK">① kernel 启动开销</text>
+  <text x="755" y="96" font-size="11" fill="#cf222e" data-page-node-id="UzvM7yWvdiEMsSHbtCj80D">② 主机-设备同步</text>
+  <text x="755" y="112" font-size="大11" fill="#cf222e" data-page-node-id="ATLA9ZuQyVqTn1XpeKNB7x">③ CPU 成为必经节点</text>
+</svg>
+<figcaption data-page-node-id="9Y0kmzJHRUPzjf9Dj3gypz">图 A（自绘）：传统主机发起 NCCL 的通信路径。GPU kernel 只能“下单”，网络操作必须经 CPU proxy 线程转手，且每次通信调用都伴随 kernel 启动与主机-设备同步（对应论文 Fig. 2 右侧、§II-D 描述）。<span class="tag-paper" data-page-node-id="vjlKpTFYB8FXAs1S3lINTi">依据：arXiv:2511.15076 §II-D</span></figcaption>
+</figure>
+
+<p data-page-node-id="BLKB97BsUNQ9FkXcrG2yiX">论文归纳的痛点：</p>
+<ul data-page-node-id="zAPJmsIVlwqqYt23GsxyZO">
+<li data-page-node-id="vJrvB3EnyEimHufoz13xPP"><strong data-page-node-id="ow74NwVxdOxkde0EoL07BT">每次通信调用都需要单独的 kernel 启动</strong>（"separate kernel launches for each communication call"）；</li>
+<li data-page-node-id="DxCBenmOQNeyDHcbER1OcE"><strong data-page-node-id="LsTWLZrk9DjOo2W3YRQxDw">显式的 host-device 同步</strong>是 CUDA 运行时模型的固有特征，无法避免；</li>
+<li data-page-node-id="mNkU1ONHsXjkywgvQmUCzC">对于需要<strong data-page-node-id="QLYMZQsnDXozoGr43XxAdh">计算-通信紧耦合</strong>的场景（MoE 动态路由、JAX/Triton 编译器生成的融合 kernel），这套模型“力不从心”（论文原话：requires device-initiated communication that eliminates the CPU coordination overhead）。</li>
+</ul>
+
+<h3 id="ch4-3" data-page-node-id="AKWoH37vzPtb8FiIeYOKSc">4.3 NCCL 2.28 Device API：三种模式</h3>
+
+<p data-page-node-id="ChEpwDVQNOqt6aejrXfk5C">NCCL 2.28（2025 年 11 月）引入 Device API，让 GPU kernel 直接发起通信。按底层互连不同分三种模式（论文 Fig. 1）：</p>
+
+<figure class="paper" data-page-node-id="qPNcik8CVx4sTqFLWoc2nU">
+<img src="./GIN 与 NCCL、DeepEP 深度解析：MoE 大模型通信栈的全景指南_files/fig1_nccl_device_api_modes.png" alt="NCCL Device API 三种模式" data-page-node-id="KMVHx83P62siuOgJkzokG2">
+<figcaption data-page-node-id="s2jTDmeezgeMfG4eKVWqQG"><b data-page-node-id="vCVK58VHt2fMjupQ9jD6f4">论文 Fig. 1</b>：NCCL Device API 架构。三种操作模式对应三种互连：LSA（PCIe/NVLink 加载存储）、Multimem（NVLink SHARP 硬件多播）、GIN（IB/RoCE 网络上的双后端 GDAKI + Proxy）。<span class="tag-paper" data-page-node-id="j5kRvdgjUbZq6fWWw5cmGD">来源：arXiv:2511.15076v2, Fig. 1</span></figcaption>
+</figure>
+
+<div class="table-scroll" data-page-node-id="MTS7qEr9C5IACGTV5wTzOk"><table data-page-node-id="2TPmeUuqUeIE3Tg8GZMfD1">
+<thead data-page-node-id="sgjLZ9MQbai23COGKg5KAv"><tr data-page-node-id="0VIOHGMg907DP07tAyXvrv"><th data-page-node-id="MDaSZN7wNEnfCAtiHbnPXW">模式</th><th data-page-node-id="XoBjbcMCJaSHksViism3zA">互连</th><th data-page-node-id="wW1N52sAD10q8HyTpcGJmr">机制</th><th data-page-node-id="4p0PjAgxBtrZkJUPqSSAA9">典型用途</th></tr></thead>
+<tbody data-page-node-id="E8ciBmw3r4Uc8YnJOEzNhD">
+<tr data-page-node-id="KrcgEjAxbBaHwOB5M8405u"><td data-page-node-id="Y66NIQ6hHuyuyfC7A8KULK"><b data-page-node-id="OMoXjS7Wgt4WU4NGJZuOaS">LSA</b>（Load/Store Accessible）</td><td data-page-node-id="9vwV3jliMS7txfJJTWnkYo">NVLink / PCIe</td><td data-page-node-id="cQe3hDpxeYKowEb8TG1R9k">GPU 线程直接 load/store 对称内存（CUDA P2P）</td><td data-page-node-id="uf6j9N0HQO9wv7daEVDv4J">节点内细粒度读写、自实现集合算法</td></tr>
+<tr data-page-node-id="GCluxCIMGfq2ELODM1IiCn"><td data-page-node-id="dJd9JOgGuHFqGNPhjGRa97"><b data-page-node-id="jeXySaRJh3XaubOk1HItUo">Multimem</b></td><td data-page-node-id="U9SyfN0xDhGWSkStmbIddZ">NVLink SHARP</td><td data-page-node-id="WDsN7dry3CGlbji6PkII5W">硬件多播/规约指令（multimem 指令族）</td><td data-page-node-id="CDI4vFkQ40B2rp76LrsOvK">节点内 AllReduce/AllGather 硬件加速</td></tr>
+<tr data-page-node-id="GyL1FqR1kDZPYdTOSJ6Ri1"><td data-page-node-id="EPBiYpWhCMaIJgHwsAJLNH"><b data-page-node-id="yPUls4hqLQeIjHhXyhZCJL">GIN</b>（GPU-Initiated Networking）</td><td data-page-node-id="upoz24HRZ7loOyljsN7HHK">InfiniBand / RoCE</td><td data-page-node-id="FC6ZPvytqQIw6e2kJWqlzh">GPU 线程直接发起单边 RDMA put/signal</td><td data-page-node-id="nyu0UMbfJDdhriBvYPePw5">跨节点低延迟点对点、MoE dispatch/combine</td></tr>
+</tbody></table></div>
+
+<blockquote data-page-node-id="HD2Y2w7ZJEziGkAHCVtSLY"><p data-page-node-id="QNTYAnUElkTLOzUAbO7sQS">NVIDIA 官方博客明确指出：使用 Device API 的前提是<strong data-page-node-id="FnnfcQ5RnZex8Hd07WAxBa">数据缓冲区必须使用对称内存窗口（symmetric memory windows）</strong>；GIN 模式在 NCCL 2.28.7 中引入，“使 GPU 能在无 CPU 干预下管理自身的网络操作”（<a href="https://developer.nvidia.com/blog/fusing-communication-and-compute-with-new-device-api-and-copy-engine-collectives-in-nvidia-nccl-2-28/" target="_blank" data-page-node-id="WNLcmE9WvBIhtLW7mKKSl6">博客原文</a>）。</p></blockquote>
+
+<h3 id="ch4-4" data-page-node-id="TAgn2MbEK0vossdgIxJWFs">4.4 GIN 在 Device API 中的位置</h3>
+
+<p data-page-node-id="S5AX5ECs4IbkfNyIb8ClIK">论文 Fig. 2 给出了新旧架构的并排对比：</p>
+
+<figure class="paper" data-page-node-id="vB9Jnq7U659VS491CryZXl">
+<img src="./GIN 与 NCCL、DeepEP 深度解析：MoE 大模型通信栈的全景指南_files/fig2_arch_comparison.png" alt="NCCL Device API 与传统 NCCL 架构对比" data-page-node-id="zmMT0SiEXWsiStxEwxPXE6">
+<figcaption data-page-node-id="xVuJ1XaHlORX5tHzrSz57i"><b data-page-node-id="1bseBU3rW0fUf9Ln27TyTH">论文 Fig. 2</b>：左侧为 NCCL Device API（三种模式 + 集体对称内存 + single-shot 集合算法），右侧为传统 NCCL（主机发起 + 常规内存上的流水线原语 Simple/LL/LL128）。<span class="tag-paper" data-page-node-id="HI1hbwbe7lz74yhpjShaAf">来源：arXiv:2511.15076v2, Fig. 2</span></figcaption>
+</figure>
+
+<p data-page-node-id="VAMvIqDAYpGzZjiLhIkz6i">注意图中的一个关键差异：<strong data-page-node-id="zvt4ghrW8MG5tatRnSTzZV">传统 NCCL 集合操作基于“常规内存 + 流水线原语（Simple/LL/LL128）”，把大数据切块流水线化</strong>；而 Device API 路径基于<strong data-page-node-id="SJJuqSHKck2LGBzTdcXsnz">集体对称内存</strong>，支持 single-shot 集合算法与 kernel 内直接调用。GIN 是其中唯一面向<strong data-page-node-id="w08VGqFIXH4HTFASzTw3xX">网络 RDMA</strong>的模式，也是本文的主角。</p>
+
+<!-- ================================================================ -->
+<h2 id="ch5" data-page-node-id="Pw0asYOzGqAeoUIQ7bXeOM">5. GIN 原理详解</h2>
+
+<h3 id="ch5-1" data-page-node-id="xGcCWqg25xTUg6D7CxbGm5">5.1 问题背景：GPU 无法直接“打电话”给网卡</h3>
+
+<p data-page-node-id="s5BGjfuzEVHrT55vHPkHX9">GIN 要解决的问题，本质上是<strong data-page-node-id="2HeKOYKHmEXYeoAe6q0AhP">控制路径的权属</strong>问题。回顾 GPU 网络通信技术的演进（论文 §II-A/II-B）：</p>
+
+<div class="table-scroll" data-page-node-id="NoHeGOhI4yaLsLQcZcWkrV"><table data-page-node-id="vBrewqcdpnk61nh4Tcloju">
+<thead data-page-node-id="RVFR7WDDMx5lLxEGrsreLh"><tr data-page-node-id="KFwYCCKUEerQRHLzRvnGip"><th data-page-node-id="3GUAHcRMzC9yzGgRGoFaBn">技术（年份）</th><th data-page-node-id="bvBNuDY0RtyIdlphlNXSTC">解决了什么</th><th data-page-node-id="UUT8Tun4zM2PgG9wCuCNcK">还差什么</th></tr></thead>
+<tbody data-page-node-id="bCHJwAxoNjxvbMBg8cX8as">
+<tr data-page-node-id="AjZ0Jx21OQmfA7qvWhgPr9"><td data-page-node-id="wGCZ0tVrAdjQJVlmdZbgSA"><b data-page-node-id="oeFa4HIztzYVGumQuMLm2Q">GPUDirect RDMA</b>（2013）</td><td data-page-node-id="VOvAsOKWYQ0FCnYmGV4jLS">数据路径：网卡 DMA 直接读写 GPU 显存，数据不再绕道主机内存</td><td data-page-node-id="tQxdU49jLHUWjAzQNiVPVd">控制路径仍在 CPU；且仅在 kernel 边界保证一致性——正在运行的 kernel 无法安全访问已注册的 RDMA 内存，计算与通信必须分离</td></tr>
+<tr data-page-node-id="YYWHQPQyukCighJ5MXnoVk"><td data-page-node-id="HM8urJZxH84V1ARdtPyrGN"><b data-page-node-id="EWaNXog4jx41PwGLEAUbY4">GPUDirect Async</b>（2016）</td><td data-page-node-id="R7KywYckKOeU1YwuAAO30I">控制路径部分卸载：GPU 可写网卡 doorbell 寄存器触发预配置的操作</td><td data-page-node-id="zCpV0afc0a3S01NknHrSau">CPU 必须预先构造好通信描述符，GPU 只能“点菜”，不能“点任意菜”</td></tr>
+<tr data-page-node-id="e6sfcYEND1RcICUHfLkVHC"><td data-page-node-id="4JYdWhLDmymD4CMJWL0QPc"><b data-page-node-id="s5aHWVExz9BWNrDCvIhlKn">GPUrdma / GIO</b>（2016/2020）</td><td data-page-node-id="fgSsxS6kyCGapvOabahSE8">学术原型：把 IB verbs 做成设备可调用函数</td><td data-page-node-id="HkZkEs13dPlabi4qUrPhqH">GPU-NIC 内存一致性难题未彻底解决，未产品化</td></tr>
+<tr data-page-node-id="lZ0Iy8n0YXukKqKo27XCJE"><td data-page-node-id="C4gXZcUcS5goEA0UZTT7Hi"><b data-page-node-id="QO1z41oEHaYlA5ZSsiLq1E">NVSHMEM</b>（2019→）</td><td data-page-node-id="NIKCdXagwQJ2wEl5Zt4fus">OpenSHMEM 的 GPU 版：kernel 内可调用 put/get/原子操作，IBGDA 后端实现 GPU 直控网卡</td><td data-page-node-id="J3vewpDb8jiRRe9l9MnZwD"><b data-page-node-id="TVK1S96wYqbVTWdlGbDzEZ">独立运行时</b>，与 NCCL 生态并存带来部署复杂度；其能力无法与 NCCL 集合通信共享</td></tr>
+<tr data-page-node-id="K7HU0RFWBp8WNkdw57iJ9Y"><td data-page-node-id="MbKYKQlwxE5M7gWEOiPdHC"><b data-page-node-id="xMN2rqE0WrgoXN0XO2N2bT">DOCA GPUNetIO</b></td><td data-page-node-id="PCqknMSqcJlr3nMG8ehAWu">NVIDIA 官方 GPU 侧 RDMA API（IBGDA 的产品化），设备函数直编网卡</td><td data-page-node-id="IYVR6iadIqXJAgaPQtCiFY">是库级原料，不是通信运行时</td></tr>
+</tbody></table></div>
+
+<p data-page-node-id="rTSsLzzNyI38qAObJw7YZR">所以 GIN 的定位非常清晰：<strong data-page-node-id="J9S0PCKfjjFYYb6SevI14r">把 NVSHMEM 验证过的“GPU 直控网卡”能力，装进 NCCL 这个生产级运行时里</strong>——既获得设备发起通信的性能（论文引用 NVSHMEM 论文数据：消除 kernel 启动开销可带来 60–75% 加速），又不必在集群上同时维护两套通信运行时。</p>
+
+<h3 id="ch5-2" data-page-node-id="CzPUvqqZCsKpW6HczyAIpf">5.2 GIN 的三层架构</h3>
+
+<p data-page-node-id="zE0uhc2XFFAHL7Qjl054Kv">GIN 自身也是三层结构（论文 §III-A、Fig. 3 绿色路径）：</p>
+
+<figure class="paper" data-page-node-id="vGulM6OA5dGs2sRrLYKWs9">
+<img src="./GIN 与 NCCL、DeepEP 深度解析：MoE 大模型通信栈的全景指南_files/fig3_gin_architecture.png" alt="GIN 三层架构" data-page-node-id="MCxPKZD46HDZpx7p9ItJbV">
+<figcaption data-page-node-id="MO8Y5EJHdGDnAWM5rMd2B3"><b data-page-node-id="zRIkHL0DWX2tj4oOnnbVnb">论文 Fig. 3</b>：GIN 架构。左侧绿色路径：NCCL Core（主机 API）→ Device GIN API → GIN 网络插件（GDAKI/Proxy 双语义）；右侧灰色路径为传统双侧集合 API。<span class="tag-paper" data-page-node-id="XzdEx2QoDL9SnvTcEklGpm">来源：arXiv:2511.15076v2, Fig. 3</span></figcaption>
+</figure>
+
+<ol data-page-node-id="UA2Ma8uKegv3EHMgKFXQK4">
+<li data-page-node-id="YvW6NDaim0BxbsvKgow3mH"><strong data-page-node-id="kxtEFtAp8DHkB5V4KrsbyH">NCCL Core（主机侧）</strong>：管理通信器初始化（<code data-page-node-id="EI8LxAz8JgEyeuMvKiDvKD">ncclDevCommCreate</code> + GIN 配置标志）、资源分配、以及关键的<strong data-page-node-id="peCckRQcv8X2beEGd0VWMm">集体内存窗口注册</strong>（<code data-page-node-id="wZa7sVsMg5QzEJU8DkzH6r">ncclCommWindowRegister</code>）。</li>
+<li data-page-node-id="StCJ7Oz4KrL8Cphm9RigV3"><strong data-page-node-id="Ef6dGvS3CLR9xFFaPylbFp">Device GIN API（设备侧）</strong>：暴露给 CUDA kernel 的统一接口，以 <code data-page-node-id="bdal2sIPMNxc054KBnC8p1">ncclGin</code> 对象为核心，提供 put/signal/counter/flush/barrier 原语，运行时透明分派到 GDAKI 或 Proxy 后端。</li>
+<li data-page-node-id="6JZm351B7UGlZhuL6pDy0y"><strong data-page-node-id="xTYY4jTTYh6LOs7j7Tqrya">GIN 网络插件（可插拔后端）</strong>：定义两套语义——<strong data-page-node-id="LAg2REjh6QV2Ph56tUAYVA">GDAKI 语义</strong>（插件拥有控制路径与设备 API，通过 <code data-page-node-id="MJQSLZqapxlDl2DYQjW166">createContext</code> 创建 GPU 上下文，用 DOCA GPUNetIO 直编网卡）与 <strong data-page-node-id="JIn0mnxWz1gq02Z4A7griL">Proxy 语义</strong>（NCCL Core 拥有控制结构与设备 API，插件只提供 CPU 侧的 put/signal/test/regMr）。</li>
+</ol>
+
+<h3 id="ch5-3" data-page-node-id="BEM8TJtMVTSjWMLEZqLI1Z">5.3 核心概念：窗口、上下文、信号、计数器</h3>
+
+<h4 data-page-node-id="cn157g5la7T1GZXIcl8XfG">（1）内存窗口（Window）：远端寻址的基础</h4>
+<p data-page-node-id="Uv1eD0I8CATSZCc32OFNg2">GIN 的通信缓冲区必须由所有 rank <strong data-page-node-id="JCrQyuYy4dcW38B6WQMfqb">集体注册</strong>为窗口（遵循 MPI RMA 窗口模型，类比 NVSHMEM 对称堆）。注册后每个 rank 拿到包含远端访问元数据（如 RDMA key）的窗口句柄，kernel 内用 <strong data-page-node-id="90j2GVB6VVUctQtzcG85rV">(窗口, 偏移)</strong> 二元组寻址远端内存，实现零拷贝单边访问。论文特别指出：窗口设计上支持各 rank 容量不对称（为 prefill/decode 分离部署预留），但 NCCL 2.28 当前实现仍强制对称大小。</p>
+
+<h4 data-page-node-id="SmZzTddVsUoYIRl55FmWPj">（2）GIN 上下文（Context）：网络并行度的抽象</h4>
+<p data-page-node-id="g0cEcIAMDFRBzGL2TscJRA">每个上下文封装 GPU↔网卡的一组资源与连接（队列对 QP），一个上下文可寻址通信器内所有 rank。每通信器多上下文 → 多 NIC / 多端口 / 多 QP 并行。DeepEP 集成时即利用多通信器 × 每通信器 4 上下文凑满 24 个 QP 的需求（论文 §IV-B）。</p>
+
+<h4 data-page-node-id="Wo8A4hVFkf5mtlD8z3l2Ga">（3）信号（Signal）与计数器（Counter）：双轨完成跟踪</h4>
+<p data-page-node-id="sIFBdxnavdSeb7Qk5eEX6o">所有 GIN 操作异步立即返回。完成跟踪分两轨：</p>
+<ul data-page-node-id="uFAWmBV2ZEw9SeJorEMxuH">
+<li data-page-node-id="zT5lncCKgF5JlBeoqHznyv"><strong data-page-node-id="zWKoXeLdurIAIYj3zGM9Wa">Counter（本地完成）</strong>：发送方视角“数据已离开，源缓冲区可复用”。每个数据操作可附带 counterID 累加，支持流水线算法精细描述。</li>
+<li data-page-node-id="UyALR29Bkz8V7tgnFWjlhd"><strong data-page-node-id="G98q8wR9yfrPKY6E2tckNE">Signal（远程完成）</strong>：对称对象，确认“数据已到达且对远端 GPU 线程可见”。与 OpenSHMEM 按地址同步不同，GIN 用 <strong data-page-node-id="B7vIJ8BVLdDxKymZ4oVwBq">ID 寻址</strong>（整数 ID 而非内存地址），简化资源管理、便于硬件实现。</li>
+</ul>
+
+<h4 data-page-node-id="NdNqJal9YCBe0SBhpbRSVl">（4）排序语义：轻量级 release-acquire</h4>
+<p data-page-node-id="ksBEymLTTIpt9lGZmLhuAD">GIN 操作默认<strong data-page-node-id="sdQLtpY2xWWIumre6nrYKa">无序</strong>以最大化吞吐；唯一的保序保证是：<strong data-page-node-id="f1O2oEjPp7DEPb3KkZenuM">同一上下文、发往同一 peer 的 signal 完成 ⟹ 此前所有 put 已在远端完成且可见</strong>。应用可以批量 put 后挂一个 signal，一次性获得整批数据的远程可见性保证——无需全局 fence。这就是论文 §IV 中 DeepEP 用“零字节 put with signal”模拟 release-acquire 语义的基础。</p>
+
+<h3 id="ch5-4" data-page-node-id="7SBAmB9gGmA0O14ObgxQ1p">5.4 GDAKI 后端：GPU 直控网卡</h3>
+
+<p data-page-node-id="VUrpbhapAXYTpB92IDIHJP">GDAKI（GPUDirect Async Kernel-Initiated）后端是 GIN 的极致性能路径，基于 <a href="https://docs.nvidia.com/doca/latest/doca-gpunetio/" target="_blank" data-page-node-id="Rbz0HFxBASOrAFxEAgWzrU">DOCA GPUNetIO</a>。一次 <code data-page-node-id="42BDF4cN3BxDRlbAPHPDKw">put</code> 的完整流程（论文 §III-C）：</p>
+
+<ol data-page-node-id="efXoF3UnPXGB69sgyGzmUD">
+<li data-page-node-id="OHmYTXhnWVAkvuPlUDntYg">GPU 线程在<strong data-page-node-id="pu389t6EA7870KWfB0hEke">设备内存中直接构造 RDMA 工作队列条目（WQE）</strong>，填入源/目的地址与传输元数据；</li>
+<li data-page-node-id="aetwFwmqWy4m8zz1caeVkb">GPU 线程直接写网卡的 <strong data-page-node-id="ALSIQoI8mk8ZExkKW5teOP">doorbell 寄存器</strong>（经 PCIe BAR 映射），触发 DMA；</li>
+<li data-page-node-id="Lr07jmK2pnscEk9xGRHBIG">网卡硬件自主推进：轮询 GPU 内存获取新 WQE → 执行 IB/RoCE 事务 → 在 GPU 可见内存更新完成队列条目（CQE）。</li>
+</ol>
+
+<p data-page-node-id="CNM2HzpADve1CcYGC63fBp"><strong data-page-node-id="pYr1ZFQEsMn6BJgyEcjGbE">全程零 CPU 参与</strong>。代价是硬件要求高：ConnectX-6 Dx 及以上网卡、CUDA 12.2+、GPU 与网卡同 PCIe 根复合体、正确的 GPUDirect RDMA 内核模块（nv_peer_mem 或 dmabuf）。</p>
+
+<h3 id="ch5-5" data-page-node-id="zS8qVUWKq9GbiDl4PY7rDu">5.5 Proxy 后端：CPU 代理兜底</h3>
+
+<p data-page-node-id="va1t4pwWO8jwAEFXo8ajGA">Proxy 后端用可移植性换性能，兼容任意 RDMA 网卡（IB/RoCE/iWARP）、任意 CUDA 版本、Volta 及以上 GPU。流程：GPU 线程用 fire-and-forget 写操作把 <strong data-page-node-id="3se7iRdVEtkH8in8Bb6K8v">64 字节描述符</strong>（含窗口句柄、内联值、偏移、大小、完成动作）塞进 CPU 内存中的无锁队列 → 每通信器一个绑核（NUMA 亲和）的 CPU 代理线程持续轮询 → 提取字段、调用插件 <code data-page-node-id="NUYrCzfZ5SFl34EB4woeH3">iput/iput_signal</code>（映射到标准 IB verbs）→ 通过 <code data-page-node-id="Regl7T2yGP1PztGN6p7Gua">test</code> 轮询完成、匹配 counter、更新 GPU 可见内存中的完成状态。</p>
+
+<p data-page-node-id="q1F43J0PFkAfBMQGliOVox">论文 Table I 对两个后端做了完整对比：</p>
+
+<div class="table-scroll" data-page-node-id="9Q7xGKcmU2WEUHtTl7Icfv"><table data-page-node-id="gySHowrNsQl3IuE4VVxDrH">
+<thead data-page-node-id="uqyfCuHu2q3TV4hOQzfmfx"><tr data-page-node-id="1Htp4UzphGEBT7maofXgfQ"><th data-page-node-id="pVew1WpX0SN6XuNcNOdJyP">特性</th><th data-page-node-id="MDb3y7cHOZDG7K1IGrxGuO">GDAKI</th><th data-page-node-id="XAk0Fh7EH47DUBznCFSW8I">Proxy</th></tr></thead>
+<tbody data-page-node-id="SDAJawCFlDbBKZhgJGCkpX">
+<tr data-page-node-id="AY05jf92EiUBcrOMvJNVks"><td data-page-node-id="YZ1OHidWxaZkQgEEgQL5Ao">通信路径</td><td data-page-node-id="9AhlRp4Ja4k0IgBwgod99k">GPU ↔ 网卡直连</td><td data-page-node-id="p3npMDttEnXRniHp7mzs95">GPU → CPU ↔ 网卡</td></tr>
+<tr data-page-node-id="2ao6C58YsZ8OJff9Wpf96m"><td data-page-node-id="k2pX16qiOB8XLeBStrlDUE">CPU 参与</td><td data-page-node-id="GAaif4FXHfVUqqRiuM6auL">零（完全设备驱动）</td><td data-page-node-id="zqQ8xWYSFlHk7xm28ELIyf">需要（每通信器专用线程）</td></tr>
+<tr data-page-node-id="sIbzC45kxwP5ogleFYgjGp"><td data-page-node-id="7FiLRQ6yDbAobrxanHtmf4">推进模型</td><td data-page-node-id="pD3DhXcDQs4n5ECBfIPAwb">网卡硬件自主轮询 GPU 内存</td><td data-page-node-id="TQRggotYpnmcnmtGNBRaa3">CPU 线程轮询队列并提交网卡</td></tr>
+<tr data-page-node-id="9tDJnhKTbqrYQDQU0TqttK"><td data-page-node-id="FipvOYvvfzFjWrEkHGYPon">操作提交</td><td data-page-node-id="YcOIX3JdiNDjcNuZEvKUsw">GPU 直接敲网卡 doorbell</td><td data-page-node-id="6BfSAP992BNY8vE3EqbwOM">GPU 写描述符；CPU 提取并提交</td></tr>
+<tr data-page-node-id="xEHHYB147dfGrVkDxQj3XU"><td data-page-node-id="Bm6fds2rUzowQT6sGGpJtE">硬件要求</td><td data-page-node-id="ysAU2v8Ow024ZvjLHfpzla">ConnectX-6 Dx+、CUDA 12.2+</td><td data-page-node-id="y9x2KERwczYBIPwwV0TCkb">任意 RDMA 网卡、任意 CUDA GPU/版本</td></tr>
+<tr data-page-node-id="EZH1KHSYMp6ECHdzGTvDlI"><td data-page-node-id="tr4qfODgvRy1b3cfpc3QZb">调试</td><td data-page-node-id="gGqSrGSXUE0e74H4VqgBhp">仅设备侧工具</td><td data-page-node-id="knv1vpZ5gk5HZ2HptilUhK">可主机侧检查与跟踪</td></tr>
+<tr data-page-node-id="kGOtoRDmVko6hFtbzKsiv6"><td data-page-node-id="W12Q1NdjbAtG29GHjzkm3Q">适用场景</td><td data-page-node-id="KC5DHvNfEMtfvkd4Ga2Wys">生产 HPC/AI 集群</td><td data-page-node-id="aUQRN3aVAdcNI8YPVA0KVK">开发、遗留硬件、多厂商网络</td></tr>
+</tbody></table></div>
+
+<p data-page-node-id="eS3dNzGwKRNzQ49g1ktyDJ">后端选择在通信器初始化时自动探测（优先 GDAKI，失败回退 Proxy），也可用环境变量 <code data-page-node-id="knPReZFnSVxhvA6Nq7vMoZ">NCCL_GIN_BACKEND</code> 强制指定。</p>
+
+<h3 id="ch5-6" data-page-node-id="1dsVnl01LOXxHiXo7Innjg">5.6 编程模型与代码示例</h3>
+
+<p data-page-node-id="moCtEjWOcgGM7nB0ImOPin">GIN 设备 API 的使用遵循三阶段工作流（论文 §III-B）：初始化（创建设备通信器 + 注册窗口）→ kernel 内构造 <code data-page-node-id="RpDmmKDjixAwbDsSEF5fXD">ncclGin</code> 对象、发数据操作 → 等 signal/counter 后复用缓冲区。论文 Listing 2 的环形交换示例（简化注释版）：</p>
+
+<pre data-page-node-id="rswAKkIR86p64TOnucGBEc"><code data-page-node-id="CcfGeP5r0snzVTIehjhBqG"><span class="cm" data-page-node-id="mJGXJ3IDNsIY7NiU2F4dHG">// 每个 rank 向环上的下一个 rank 发数据，等待上一个 rank 的数据到达</span>
+<span class="kw" data-page-node-id="bzNmBGJmw9UI54vieL1KTF">__global__</span> <span class="kw" data-page-node-id="0e9Isl63AM7AbP0Vsd64AS">void</span> <span class="fn" data-page-node-id="FIBB3IjnqT8YhOVzcme8ns">ringExchange</span>(ncclDevComm devComm,
+                     ncclWindow_t sendWin, ncclWindow_t recvWin,
+                     <span class="tp" data-page-node-id="BVJtRgE8M0zeWHtRgIB0Ch">size_t</span> dataSize, <span class="tp" data-page-node-id="TJcGdox59dLsx6dTBShyVC">int</span> myRank)
+{
+    ncclGin gin(devComm, <span class="st" data-page-node-id="0TDxfXtxfRtDMbrGiWDcqT">0</span>);              <span class="cm" data-page-node-id="5nTV1eMGaCtulDd73EMkxw">// 初始化：使用 0 号上下文</span>
+    <span class="tp" data-page-node-id="Bcd8iPWIOZ86BrVr0WixUv">int</span> peer = (myRank + <span class="st" data-page-node-id="iLG9896bUlGnIv96NVrpRJ">1</span>) % devComm.nRanks;
+
+    <span class="cm" data-page-node-id="55TyRBHcJZEM5sBPMNVRPS">// 单边 put：直接写入 peer 的 recvWin，完成后自动给 peer 的 signal 0 加 1</span>
+    gin.<span class="fn" data-page-node-id="h8bxYHnUvDw8ZTSWTcwq7B">put</span>(ncclTeamWorld(devComm), peer,
+           recvWin, myRank * dataSize,     <span class="cm" data-page-node-id="XdxtFWN4j95mHJ0fsafyx3">// 目的窗口 + 偏移</span>
+           sendWin, peer * dataSize,       <span class="cm" data-page-node-id="vKyb8sbUrP35zxRAyXeFFr">// 源窗口 + 偏移</span>
+           dataSize,
+           ncclGin_SignalInc{<span class="st" data-page-node-id="7oEmaOW8x3UYqp7AndpIAB">0</span>});         <span class="cm" data-page-node-id="9HS4qshja64RZUGhLE4ICT">// 附带远程完成信号</span>
+
+    gin.<span class="fn" data-page-node-id="947J9DeXpR1LnfAFtjHMNP">waitSignal</span>(ncclCoopCta(), <span class="st" data-page-node-id="gHfG8aEOJkbEq4yXT1LQCA">0</span>, <span class="st" data-page-node-id="GjhOiIJJ0ME6Gm5HzrfLJa">1</span>);  <span class="cm" data-page-node-id="G96Cw62FlcswoWANmfBs2y">// 等前驱 rank 的数据到达且可见</span>
+    gin.<span class="fn" data-page-node-id="lw4FJMHll6Cf5AwIXlpv2A">resetSignal</span>(<span class="st" data-page-node-id="dGyhGtJ3uFHQAEDlziPlKn">0</span>);                    <span class="cm" data-page-node-id="FnFk8ObVDaAgzbWHLccaDC">// 复位，供下一轮使用</span>
+}</code></pre>
+
+<p data-page-node-id="xf4rdFvRSY7UDG2oCqP79Q">几个细节值得注意：put 与 waitSignal 都在<strong data-page-node-id="3XQOHia3ui8vDCjcsNTKb1">同一个 kernel 内</strong>完成——这就是“计算通信融合”的最小示例；put 的寻址是 (窗口, 偏移) 而非裸指针；<code data-page-node-id="uPYZaco57WGbvbxvdUGWbf">ncclCoopCta()</code> 表明等待是以 CTA（线程块）为协作单位。此外，put 接受用户提供的<strong data-page-node-id="9DesA9FPYc2mUHaL0NFmCI">可见性范围提示</strong>（线程/CTA/GPU 域），GIN 据此自动插入内存栅栏，避免过度同步。</p>
+
+<h3 id="ch5-7" data-page-node-id="b4QhcHqPS6g0HOwaeb6wr7">5.7 排序语义与内存模型</h3>
+
+<p data-page-node-id="cwUjbkBeB5xsxEWFUGvyVA">GIN 与 CUDA 内存模型深度交互。三个要点：</p>
+<ul data-page-node-id="NDWhD8Rk4zRHYNVK4ZgK8G">
+<li data-page-node-id="DqP5w9c0hFSF02bR5QASaP"><strong data-page-node-id="PSDfHxw3rBCdZa43W8URca">默认无序</strong>：不同操作间无隐式顺序，最大化网络效率；</li>
+<li data-page-node-id="E2qvCnxPy6ae6Jmz6LvzU7"><strong data-page-node-id="cDUZCqiNwzq5CS9p1y1IjY">put→signal 保序</strong>：同上下文同 peer，signal 完成保证此前所有 put 远程可见——这就是 GIN 的 release-acquire；</li>
+<li data-page-node-id="z5s77cZyTO2VXQ6FfqmvUS"><strong data-page-node-id="lRshniSB7IKOvQ7c1eZ032">flush 只管本地</strong>：flush 保证所有已提交操作被消费、源缓冲可复用，但<strong data-page-node-id="AvKwbPKLOP8jo4kYzDiGM0">不保证远端可见性</strong>。需要远端可见性时必须用 signal。</li>
+</ul>
+
+<h3 id="ch5-8" data-page-node-id="iJNde1DPXKDquIBaGaz9mI">5.8 性能数据</h3>
+
+<p data-page-node-id="zvBTv5ZcYur3BhFflJ4rKY">论文在 NVIDIA EOS 集群（576 节点 DGX H100，每节点 8×H100 + 8×400 Gb/s IB）上评测，对比对象是 NVSHMEM 3.4.5（IBGDA / IBRC 两种传输）与 NCCL 2.28 GIN（GDAKI / Proxy 两种后端），DeepEP 1.2.1 作为应用负载。</p>
+
+<h4 data-page-node-id="Rl8SRT2X2nDXpiGr4AZOjW">点对点微基准（ping-pong，put with signal 往返延迟）</h4>
+<figure class="small" data-page-node-id="9kut6aF4avRcE71OCQws1I">
+<img src="./GIN 与 NCCL、DeepEP 深度解析：MoE 大模型通信栈的全景指南_files/fig4_p2p_latency.png" alt="点对点延迟对比" data-page-node-id="2Z1H5QGai8mhq5jnOwP14e">
+<figcaption data-page-node-id="cBXlUXVeSQF8GXOACHnlot"><b data-page-node-id="jqGqhBV7Aztp7H6xiWZA9s">论文 Fig. 4</b>：4B–4MB 消息的 RTT。小消息段（4–128B）：GIN GDAKI 16.7 µs ≈ NVSHMEM IBRC 16.0 µs &lt; GIN Proxy 18.0 µs &lt; NVSHMEM IBGDA 24.3 µs。大消息段各实现被带宽主导，性能收敛。<span class="tag-paper" data-page-node-id="daW8lS82R4baiGq5rIWp4m">来源：arXiv:2511.15076v2, Fig. 4</span></figcaption>
+</figure>
+
+<h4 data-page-node-id="t2pKaHDOBw6riVbbTmTI10">DeepEP 高吞吐（HT）内核：4096 tokens 训练/prefill 场景</h4>
+<figure class="small" data-page-node-id="2Vj0lysFKQlAHAMtLUpjc7">
+<img src="./GIN 与 NCCL、DeepEP 深度解析：MoE 大模型通信栈的全景指南_files/fig5_ht_bandwidth.png" alt="HT 内核带宽" data-page-node-id="YOUcx8sZLxUTgDDByuIOOL">
+<figcaption data-page-node-id="PGem6BeZOthMulfWEvNtna"><b data-page-node-id="lDQ8tuqp7KB5gafG6DjrtZ">论文 Fig. 5</b>：2/4/8 节点 dispatch/combine 带宽（FP8/BF16）。2 节点 BF16 dispatch RDMA 带宽：GIN 84.36 GB/s vs NVSHMEM 84.97 GB/s；8 节点两者均约 53–54 GB/s。全配置差异 &lt; 1–2%。<span class="tag-paper" data-page-node-id="RhADxAFCR7CnuO3Mospv5c">来源：arXiv:2511.15076v2, Fig. 5</span></figcaption>
+</figure>
+
+<h4 data-page-node-id="v0ciT50FbozWb3FU9Gi8O3">DeepEP 低延迟（LL）内核：1–128 tokens decode 场景（NVLink+RDMA 混合）</h4>
+<div class="table-scroll" data-page-node-id="WFvlDROwAhgfsFPohFmx1Y"><table data-page-node-id="tquiOint9PSyuLO8Sn5E9A">
+<thead data-page-node-id="ERW4CRV8UpBmmQI81ErzeN"><tr data-page-node-id="a92UQXGjROgwZSy1EfWYOP"><th data-page-node-id="ECoFinIMuVynYSgmujWbjC">配置</th><th data-page-node-id="KzmCbEWBsWQi6Vw0Se79UA">NCCL GIN</th><th data-page-node-id="xaIgTvcI9gdDmjEr93DwUq">NVSHMEM</th><th data-page-node-id="y0DPEAbfdfKGIVJE9vA760">差值</th></tr></thead>
+<tbody data-page-node-id="qNA1KtmhC73IF53nqPHtUi">
+<tr data-page-node-id="Ce6H2MEcDyMtQfpvjXrJ2L"><td data-page-node-id="maPoHmFrBvVO5VpvvMaZwc">1 节点 dispatch</td><td data-page-node-id="FEQPDjI7G51t5Mlh7SVTpJ">185.28 GB/s @ 40.62 µs</td><td data-page-node-id="VTi4j5GutgIza5HM3UzDjC">182.15 GB/s @ 41.43 µs</td><td data-page-node-id="e7XS3OvoWFkJHh1FKlHrME">GIN 略优</td></tr>
+<tr data-page-node-id="hHuXZKCh12ETUKb4nn6eCZ"><td data-page-node-id="QBqI4JFN8AYKhaAsvMMsp2">2 节点 dispatch</td><td data-page-node-id="xuCTwSRLiS9Ktf3yhWhKyo">142.51 µs</td><td data-page-node-id="nuIJ2k6cfU4OOBAdZioVo9">157.00 µs</td><td data-page-node-id="IVQjs6BfyAQB2nFa3EZsJP"><b data-page-node-id="pFa8vidV5ntJfhr8TAKxoh">GIN 低 9%</b></td></tr>
+<tr data-page-node-id="6QE40WTcBjb9GCb1HoKA3X"><td data-page-node-id="gj1FQC1ZIpLtacNAOQ6Ay8">1 节点 combine</td><td data-page-node-id="JwjV6cmcQXzuEvLBcQrUGu">≈211 GB/s @ ≈69 µs</td><td data-page-node-id="u1ECSseuJr8G5tmlFHJ1Nh">≈211 GB/s @ ≈69 µs</td><td data-page-node-id="qF3pAbSOqtetM3QC6pkJGE">基本相同</td></tr>
+</tbody></table></div>
+
+<figure class="small" data-page-node-id="bnrLmpjzL77ScPA7FPPzy5">
+<img src="./GIN 与 NCCL、DeepEP 深度解析：MoE 大模型通信栈的全景指南_files/fig6_ll_bw_nvlink.png" alt="LL 内核带宽（NVLink 开）" data-page-node-id="56HL2hGCdTXUJs4EF4Jx2V">
+<figcaption data-page-node-id="adjJpoHIo5PreAUwG9c32p"><b data-page-node-id="Bsy99swmmCm3pIV6HIMpZ6">论文 Fig. 6</b>：LL 内核带宽（NVLink 启用）。<span class="tag-paper" data-page-node-id="pkLKN4gNoOSniWw3xqBZNN">来源：arXiv:2511.15076v2, Fig. 6</span></figcaption>
+</figure>
+<figure class="small" data-page-node-id="6Z7A6YgZNQynamCmy6T0EI">
+<img src="./GIN 与 NCCL、DeepEP 深度解析：MoE 大模型通信栈的全景指南_files/fig7_ll_latency_nvlink.png" alt="LL 内核延迟（NVLink 开）" data-page-node-id="M76hSfdzGOS6zpz6pltPhS">
+<figcaption data-page-node-id="vWBASK6afpaATnrwx2ZGQl"><b data-page-node-id="e88DHFB5qysNaJchYX6GHh">论文 Fig. 7</b>：LL 内核延迟（NVLink 启用）。GIN 在多节点 dispatch 上延迟一致更低（2 节点低 9%）。<span class="tag-paper" data-page-node-id="vjv7PPbpqxEVCbGdbRm66W">来源：arXiv:2511.15076v2, Fig. 7</span></figcaption>
+</figure>
+
+<h4 data-page-node-id="HPH8ldkVcopoi189rAzZZ4">LL 内核纯 RDMA（禁用 NVLink，模拟无 NVLink/跨交换机拓扑）</h4>
+<figure class="small" data-page-node-id="rVzwYo7T9HSPKGRvnWpiRz">
+<img src="./GIN 与 NCCL、DeepEP 深度解析：MoE 大模型通信栈的全景指南_files/fig8_ll_bw_pure_rdma.png" alt="LL 内核带宽（纯 RDMA）" data-page-node-id="5ChL5kZXLdHQNNmFMJE6EE">
+<figcaption data-page-node-id="tAKvu25Szu1WlKppVXiFC4"><b data-page-node-id="lgN8B7iGVworFQPeaZuhSf">论文 Fig. 8</b>：LL 内核带宽（纯 RDMA）。1 节点 dispatch：GIN 47.00 GB/s vs NVSHMEM 46.79 GB/s；8 节点均约 34–35 GB/s。<span class="tag-paper" data-page-node-id="HeEooGgQPgGPtKbDgJm3sK">来源：arXiv:2511.15076v2, Fig. 8</span></figcaption>
+</figure>
+<figure class="small" data-page-node-id="H9uA5BA73Egmr8sExwgDdP">
+<img src="./GIN 与 NCCL、DeepEP 深度解析：MoE 大模型通信栈的全景指南_files/fig9_ll_latency_pure_rdma.png" alt="LL 内核延迟（纯 RDMA）" data-page-node-id="4zPEeNOFt1QUhTiAR2fc41">
+<figcaption data-page-node-id="zEwZpAJHHVlkxt41U1cRrw"><b data-page-node-id="r6cobBEUejrV8Sj9FUwu1P">论文 Fig. 9</b>：LL 内核延迟（纯 RDMA）。8 节点两者均约 219–225 µs，差异 1–2%。<span class="tag-paper" data-page-node-id="uKv2SWoTkynBdE0mODHzMw">来源：arXiv:2511.15076v2, Figs. 8–9</span></figcaption>
+</figure>
+
+<div class="callout info" data-page-node-id="RHKEdlNyxABpQNlFrlnrSM">
+<p class="callout-title" data-page-node-id="YdFvKPqKkRzEAvQmmtFuUp">性能结论（论文 §V-D）</p>
+<p data-page-node-id="HKEvVCw2AqqsNOjGOBRgbP">GIN 在 NCCL 统一运行时内提供了与专用库 NVSHMEM <strong data-page-node-id="S7TWMg8g3yeL5MXDxm4qlK">相当的设备发起通信性能</strong>（多数指标差异 1–2%，个别场景 GIN 反超 9%），同时保住了 NCCL 的拓扑感知集合算法与生产级基础设施。换句话说：<strong data-page-node-id="uSc6bEN9p6pbgQl8ocoe2o">迁移没有性能代价，省下了多运行时的运维成本</strong>。</p>
+</div>
+
+<!-- ================================================================ -->
+<h2 id="ch6" data-page-node-id="YJFrGrNRTKG7aPRQNtj6dN">6. DeepEP V1：MoE 专用通信库</h2>
+
+<h3 id="ch6-1" data-page-node-id="qf85ZvFgy7YCISD6grqVW1">6.1 定位与设计目标</h3>
+
+<p data-page-node-id="fBYvHTcgSh2uXakaPAyYUF"><a href="https://github.com/deepseek-ai/DeepEP" target="_blank" data-page-node-id="MOU1OxgUj1b0BlJSz5lRMA">DeepEP</a> 是 DeepSeek 2025 年 2 月开源周发布的、专为 MoE 与专家并行设计的通信库（论文 §IV：a specialized MoE communication library），提供 dispatch/combine 的 all-to-all GPU kernel，原生支持 FP8。它与 DeepSeek-V3 论文（<a href="https://arxiv.org/abs/2412.19437" target="_blank" data-page-node-id="QX6fIBDk4WhRuDW5TBXwGt">arXiv:2412.19437</a>）中的组限制门控算法配套，针对 NVLink 域 → RDMA 域的<strong data-page-node-id="h1PmlACm9LWr9NB1019p34">非对称带宽转发</strong>做了专门优化。</p>
+
+<h3 id="ch6-2" data-page-node-id="U2sPsa8tk1exjFFDBBt9vi">6.2 Normal（高吞吐）内核</h3>
+<p data-page-node-id="bQGlmA9biQINjHyUK5kGRz">面向训练与推理 prefill（大批次，如 4096 tokens/rank）。采用<strong data-page-node-id="LZnT4gcGP3yaQzsbKDus2n">分层通信</strong>：跨节点走对称的 rank-to-rank RDMA，抵达目标节点后经 NVLink 二级转发分发到目的 GPU，尽量把昂贵的 RDMA 流量压缩到最少、把节点内的 900 GB/s NVLink 用满。dispatch kernel 给 SM 分配专业角色（论文 §IV-D：奇数 SM 做 Sender/NVLink Receiver，偶数 SM 做 Forwarder），配合 head/tail 指针环形缓冲流控，需要 24 个 QP、24 个 SM。H800 实测：节点内 153–158 GB/s（NVLink 瓶颈），节点间 43–58 GB/s（RDMA 瓶颈），基本打满硬件。</p>
+
+<h3 id="ch6-3" data-page-node-id="VdpLxFNEBb0wAk4YAiMLsj">6.3 Low-Latency（低延迟）内核</h3>
+<p data-page-node-id="0uESCB3OrDsOb2QCcpFunT">面向推理解码（小批次 1–128 tokens/rank）。采用<strong data-page-node-id="haeU41F8LhWvHomY3yhmTi">全互联 RDMA mesh</strong>：每对 (源, 目标专家) 都有专用 buffer 与信号，token 直接点对点直达，不经任何转发。每专家一个 signal，数量与本地专家数匹配（8–16 QP）。H800 实测：8 EP dispatch 延迟约 77 µs（后续版本借助 NVLink 优化），256 EP 约 194 µs。</p>
+
+<h3 id="ch6-4" data-page-node-id="PjL74PQiyANcRFjfl7FlnP">6.4 基于 NVSHMEM/IBGDA 的实现</h3>
+<p data-page-node-id="xPsoG0CLUKwdb73pVOL0JE">V1 的跨节点通信全部构建在 <strong data-page-node-id="1ELRlAM7FyBCbhdGw4Us1R">NVSHMEM（DeepSeek 修改版）+ IBGDA</strong>之上：用 <code data-page-node-id="EhnhkecRTL26k6145hd1ct">nvshmem_put_nbi</code> 传数据、用远端内存原子操作维护 head/tail、用 <code data-page-node-id="h8mZoGdxpsxnemHJi6aWph">nvshmem_quiet</code> 做本地 flush、用 <code data-page-node-id="DGHCoubGGx1RW8Yq64dODX">nvshmem_barrier</code> 做同步——即 PGAS 指针寻址 + 内存原子语义模型。这套自维护栈正是 V2 要替换的对象。</p>
+
+<!-- ================================================================ -->
+<h2 id="ch7" data-page-node-id="1G0s45EmC8VsEQ3OpQXYFW">7. DeepEP V2：切换到 NCCL GIN 后端</h2>
+
+<h3 id="ch7-1" data-page-node-id="IQAkTBEiy5qNQtTn0ZwRYX">7.1 V2 的演进动机与官方发布</h3>
+
+<p data-page-node-id="E8Etkmz8W98fntm2QqYBXB">2026 年 4 月，DeepSeek 发布 <a href="https://github.com/deepseek-ai/DeepEP/pull/605" target="_blank" data-page-node-id="UCSAjDpQWZF1WIvIEI1Jw1">DeepEP V2（PR #605）</a>，官方说明直言：“随着硬件、网络与模型架构的演进，V1 积累了过多历史包袱与性能问题”，V2 对专家并行做了彻底重构，并宣布 <strong data-page-node-id="alupYxhvo6pmqNRD7crP62">“后端已从 NVSHMEM 切换为更轻量的 NCCL Gin 后端”</strong>。</p>
+
+<h3 id="ch7-2" data-page-node-id="frnbJq6ILJ7w2VfQSIYKUR">7.2 V2 的核心变化</h3>
+<ul data-page-node-id="JtHycRFw0FO72sLeIYho8G">
+<li data-page-node-id="fP7ipLiDCtwrOu0a1gern3"><strong data-page-node-id="djFr7bDDwOFDP5MH2ZZ5Lv">NCCL GIN 后端 + Fully JIT</strong>：全部 kernel 运行时 JIT 编译（NVRTC），header-only、可复用已有 NCCL 通信器，无需 NVSHMEM 依赖（V1 接口保留为 legacy）；</li>
+<li data-page-node-id="6tU4l5sewKTDICVjrlAZUj"><strong data-page-node-id="KqwbLMKXaP4tVDT0mlLNwf">ElasticBuffer 统一接口</strong>：高吞吐与低延迟两套 API 合一，新的 GEMM 布局（do_expand、expert_alignment 等）让 dispatch 后的 buffer 直接就是专家 GEMM 想要的布局；</li>
+<li data-page-node-id="SRwFqoXZL8Bm12BSGuSW4k"><strong data-page-node-id="z8ZEDY84kkRxkrxqNIFypF">更大规模 + 解析式资源计算</strong>：支持到 EP2048；SM/QP 数量由公式解析计算，不再需要 auto-tuning；混合（hybrid，NVLink+RDMA 分层）与直接（direct，纯 RDMA）两种模式都保留；</li>
+<li data-page-node-id="AEFZA5jA7YsTbEqN9KJIhv"><strong data-page-node-id="8UwxyaJWr7rqiwqWuGRyvX">SM 大幅省用</strong>：V3 规模训练 SM 从 24 个降到 <strong data-page-node-id="Mg6FS6l4CEBX7hAUxgc38R">4–6 个</strong>且性能持平或更好（官方性能表：SM90 EP8×2 dispatch 90 GB/s RDMA 瓶颈带宽、SM100 EP8 NVLink 域 726 GB/s，比 V1 峰值最多高 1.3×、SM 省最多 4×）；</li>
+<li data-page-node-id="SV8AhB9dSr5vrwiPjOoZLh"><strong data-page-node-id="oPFA0spWBwFE99U1sKDiIC">实验性 0 SM 特性</strong>：0 SM Engram（RDMA 远程内存访问）、0 SM PP（流水线并行）、0 SM CP（上下文并行，走 Copy Engine）；代价是 buffer 消耗比 V1 大，且 0 SM 纯 RDMA 低延迟 EP 不再支持。</li>
+</ul>
+
+<h3 id="ch7-3" data-page-node-id="rwFXa8CABnaErSQq1H2hPT">7.3 V2 如何使用 GIN：NCCLGin 封装</h3>
+
+<p data-page-node-id="7WXzCF51Hy283cCVCEgL8X">知乎系列文章《<a href="https://zhuanlan.zhihu.com/p/2043660020324290824" target="_blank" data-page-node-id="jQfqDlTNiV7a82SnVxRAx6">【DeepEP V2】07 - NCCL GIN Backend</a>》对 V2 源码（<code data-page-node-id="DT7rnaQ4xhtvbgWotTXll2">deep_ep/include/deep_ep/common/handle.cuh</code>）的解析揭示了 V2 使用 GIN 的方式——在 NCCL GIN 原始 API 之上封装了一个 <code data-page-node-id="skEAbchu10r2MaEum6XAvZ">NCCLGin</code> 结构体，提供统一通信接口：</p>
+
+<ul data-page-node-id="VjYgWCCt8EPIaNpItsJuIR">
+<li data-page-node-id="1mm2QxA0LyBmH1EyRPPB8q"><strong data-page-node-id="Xwm1Q89snHaEWcgRhDkFQA">三层 Team 通信域</strong>：<code data-page-node-id="zvO4r5ztDtx9TvmAzJFHdg">World</code>（全局）/ <code data-page-node-id="pwOTpBvrOBXsPdc7YGUDqP">LSA</code>（节点内 NVLink 域）/ <code data-page-node-id="moPti0sbmvGsMxcpF0z4zw">Rail</code>（跨节点同编号 GPU），匹配不同尺度的通信；</li>
+<li data-page-node-id="ygz1VwDwS3FR7CEEBjZ1br"><strong data-page-node-id="ZkE8InoNQMcqrRBGmoZobn">双路径自动选择</strong>：<code data-page-node-id="vUhoy5Xmh4nodSQu68Qruj">get_sym_ptr</code> 判断目标是否 NVLink 可达——可达则用对称指针零拷贝（~900 GB/s），否则走 GIN RDMA put（~100 GB/s 级）；</li>
+<li data-page-node-id="zm0iUxHDdAAhJeHqdzYGII"><strong data-page-node-id="VtA0EivLdwx36dW6mWgYpN">两种 Barrier</strong>：节点内 NVLink 原子加法 barrier（~1 µs）与跨节点 GIN signal/wait barrier（~5–10 µs）；</li>
+<li data-page-node-id="kYHzq41I3Fj8CD5eFpfwxA"><strong data-page-node-id="TZGKiZEjEYHZswMuMbGTQg">QP 隔离</strong>：Notify warp（小消息通知）独占 QP0 防止被大块数据阻塞，数据通道 QP 按 SM round-robin 均分；</li>
+<li data-page-node-id="WtY9G8kIbHTPkUgKGIPHcb"><strong data-page-node-id="HBXbRBqou188KAPGX8dlgA">超时保护</strong>：<code data-page-node-id="cG1n4khbzn4EyzYwa9ffAh">timeout_while</code> 模板（约 10 s）统一防死锁，超时打印诊断并 trap。</li>
+</ul>
+
+<h3 id="ch7-4" data-page-node-id="TBJruVJreFQpJ3JzifZbhV">7.4 V2 与 V1 对照</h3>
+
+<div class="table-scroll" data-page-node-id="s5vJ0O1R6NcSHnPdwTpjul"><table data-page-node-id="GErsjWCX1j4ZKXdAsbpjzr">
+<thead data-page-node-id="qVlYiJkm9DBx7iHFFoUlC9"><tr data-page-node-id="CaCtsYsvCVoTRBkRiTDQV5"><th data-page-node-id="5PJsdkBCtkqTJtSe2gsdte">维度</th><th data-page-node-id="M3FfiH7difBA7sny0Qelgv">DeepEP V1</th><th data-page-node-id="007mvLeFAd49pvdGaqyZaT">DeepEP V2</th></tr></thead>
+<tbody data-page-node-id="DnZunJxDFecXjaPVGAdH7e">
+<tr data-page-node-id="wYUhbOCSeYLRhKFJzFh982"><td data-page-node-id="EZXq3LGom2QY4hj0L7HHYb">发布时间</td><td data-page-node-id="wO0d8w3fQJnHoG49YgrnPD">2025.02</td><td data-page-node-id="NexaRVLpmEEPq4y9zEp6AR">2026.04（PR #605）</td></tr>
+<tr data-page-node-id="qJvCXHD1l8hdcK8a8YEgaH"><td data-page-node-id="28HTJkHsNj8gVRBFiWS8qV">通信后端</td><td data-page-node-id="O2V0KDUiXuRq1sb3LC1PyE">NVSHMEM（DeepSeek 修改版）+ IBGDA</td><td data-page-node-id="UcLfWbfBnaeGL8XAhj5VqK"><b data-page-node-id="6yNd8Lvfgek6s0DweOLCOy">NCCL GIN</b>（NVSHMEM 保留为 legacy）</td></tr>
+<tr data-page-node-id="bN0xpQgjXwDW5ndeUkvGzM"><td data-page-node-id="LMFQVanhV1Kf0vZuLeNPlT">编程模型</td><td data-page-node-id="qAHcGMynXApXNlvCLuBELD">PGAS 指针寻址 + 内存原子</td><td data-page-node-id="KYtXFcqqzXWHy5nJ0gdYwn">窗口/偏移寻址 + signal 原子</td></tr>
+<tr data-page-node-id="Z8vXcdXoUMzzB59aZD6vqh"><td data-page-node-id="VoX68n1wvMM73grIQOTpEU">API 形态</td><td data-page-node-id="PxS9VyDLbCknpUY3ajVUNh">Normal 与 Low-latency 两套接口</td><td data-page-node-id="o84iMODLRig5OS32r5msvX">ElasticBuffer 统一接口（高吞吐/低延迟合一）</td></tr>
+<tr data-page-node-id="zUOO5XXztOUcAqTtX7svVr"><td data-page-node-id="RpJTimYXbrwkl9tpAi7d5W">编译方式</td><td data-page-node-id="3lhR6Pc2wZZZQCADd9EujA">静态编译（.cu kernel）</td><td data-page-node-id="BLqCftcp8wkRW3nUyBEts6">Fully JIT（NVRTC 运行时编译）</td></tr>
+<tr data-page-node-id="JLUxJ9HzTVcczbL2i5A6hr"><td data-page-node-id="CA0YjmQTgtEM5cdhGxKK4h">SM 占用（V3 规模训练）</td><td data-page-node-id="RwmQ0NM1IA5W9dfUT3AkKy">24 SM</td><td data-page-node-id="cphx82vZGjc2Lpfyt79vsR"><b data-page-node-id="cUuU9XLzMEjHWZJTuUyvBr">4–6 SM</b>（性能持平或更好）</td></tr>
+<tr data-page-node-id="nEfbAyuFLZxDnW1qvjJMiN"><td data-page-node-id="GHnGqVktbHc7FCSQflBlXF">规模支持</td><td data-page-node-id="fHz6f6TP4tdq0So8Tur7yU">典型 EP64–256</td><td data-page-node-id="R4D4A0bzCzKdUMGpiWL1GZ">最高 EP2048</td></tr>
+<tr data-page-node-id="yIlrFRgczKAT2iyG4qIYhj"><td data-page-node-id="ftxTZZSV1deNA5uXcsec8N">调优方式</td><td data-page-node-id="Qa4HCfY39LQBenzE5x0UDz">auto-tuning / 经验配置</td><td data-page-node-id="D4Ombl3JRsM7Vx2XUeEv2j">SM/QP 解析式计算，无需调参</td></tr>
+<tr data-page-node-id="frl0fESAjCk5U0ygNPyaKA"><td data-page-node-id="3cRHDBUmzfN9P5kW3VFfy0">低延迟模式</td><td data-page-node-id="rFPwB2TvRVlkB13hUxdmHQ">0 SM 纯 RDMA 低延迟（hook 重叠）</td><td data-page-node-id="Cq9WQ9f7rnIBBL94khAiza">0 SM RDMA 低延迟不再支持；走统一接口</td></tr>
+<tr data-page-node-id="DBlW2THxDVo73EqOpNoSfU"><td data-page-node-id="JEW6wp0M3u2S4cGB4rHFCF">附加能力</td><td data-page-node-id="2GCYDhviSN9MyVm7OOheAm">—</td><td data-page-node-id="wZCDYr6GjFCQcBG3ZEfQ5W">0 SM Engram / PP / CP（实验性）</td></tr>
+</tbody></table></div>
+
+<!-- ================================================================ -->
+<h2 id="ch8" data-page-node-id="lEKWQegkDGd20lE3bBTBUS">8. GIN 与 NCCL、DeepEP 的关系总结</h2>
+
+<h3 id="ch8-1" data-page-node-id="gQHJoRMCitD0EcnwPVGTTC">8.1 三者关系的三个视角</h3>
+
+<ol data-page-node-id="8Y689mBQzYLOUtyiW7Z8Ne">
+<li data-page-node-id="pb1p0qiPpHPP5WyjTuSoQw"><strong data-page-node-id="VFWHo8yd923yGM8NoeDNAg">包含关系（对 NCCL）</strong>：GIN 是 NCCL 2.28 Device API 的三种模式之一（另两种是 LSA、Multimem），是 NCCL 在传统“主机发起集合通信”之外新开辟的“设备发起单边网络通信”路径。GIN 不是独立于 NCCL 的库——它就是 NCCL 的一部分。</li>
+<li data-page-node-id="6K4a3TBvNAFJ9dpRHoPL9S"><strong data-page-node-id="Z2t3nXrEWNBaHvOVcWFyzt">替代关系（对 NVSHMEM）</strong>：GIN 把 NVSHMEM/IBGDA 验证过的 GPU 直控网卡能力产品化并收编进 NCCL 生态。论文用 DeepEP 迁移证明了 GIN 可完整替代 NVSHMEM 的角色（性能相当，1–2% 差异），DeepEP V2 则在产品层面完成了这次切换。</li>
+<li data-page-node-id="fG5e4fzouCPFMm4j7vsiVT"><strong data-page-node-id="NwmO7YLr57xgmtC2c8X6jI">分层关系（对 DeepEP）</strong>：DeepEP 是 GIN 的最重量级用户。DeepEP 负责 MoE 业务语义（路由、去重、分层转发、FP8、GEMM 布局），GIN 提供底层传输原语（put/signal/counter/window）。DeepEP V2 的 NCCLGin 封装是“业务层调用原语层”的标准范例。</li>
+</ol>
+
+<h3 id="ch8-2" data-page-node-id="MHtMZahDddzCUKdDOnzYTF">8.2 演进时间线</h3>
+
+<div class="table-scroll" data-page-node-id="LA71tTTMM2kztdSJqEZwxl"><table data-page-node-id="7Pxrkwadmv7RpJy9BIT6Fi">
+<thead data-page-node-id="bSEOq9DmQ1Adx1lGK0tulv"><tr data-page-node-id="N2WtSH9Zo7JwT3C7CKmICJ"><th data-page-node-id="0VxZ43ZJtnKg29C1nYx3FN">时间</th><th data-page-node-id="3FuQJZflmq4KFqjijCSA64">事件</th><th data-page-node-id="BIOFbE3zOQqQNfCQTSQv2I">意义</th></tr></thead>
+<tbody data-page-node-id="FpAaX9UatI0oLABAY6VXri">
+<tr data-page-node-id="WcecFs5sH9ganQCvoUx7wl"><td data-page-node-id="mXtBHvNgehBDQkNeF3XJH8">2013–2016</td><td data-page-node-id="CV4xz1ysP8xxeK0vtjSlza">GPUDirect RDMA → GPUDirect Async</td><td data-page-node-id="GumxXTPMzD4U8spaD27yDx">数据路径绕开主机 → 控制路径部分卸载</td></tr>
+<tr data-page-node-id="gDhZ5GaS4u8YSLTChXc4pi"><td data-page-node-id="7o4zaYucw5wfC5u2UcxobH">2019–2024</td><td data-page-node-id="OcYFgeXPEQqAR6BoCX777x">NVSHMEM 成熟，IBGDA 后端落地</td><td data-page-node-id="mOs4U2jQTE09HbYCToH5Nh">kernel 内设备发起通信被验证（60–75% 加速）</td></tr>
+<tr data-page-node-id="4lztqwKvYpiepGQC1clHLb"><td data-page-node-id="uvVjbqVYaLNfVyGpmjCwGl">2025.02</td><td data-page-node-id="B21xefB4bFRgDiZNToFeZv">DeepSeek 开源 DeepEP V1（NVSHMEM 后端）</td><td data-page-node-id="P9OjoJ0fZ9thY5ezTRrYcj">MoE 专用通信库事实标准诞生</td></tr>
+<tr data-page-node-id="6btQJH7CYAYHBBwPxiglLn"><td data-page-node-id="EnA4C4tx68nly2eRotM8ke">2025.11.10</td><td data-page-node-id="met48VA76zILkYzflA2Seo">NCCL 2.28 发布 Device API（含 GIN，2.28.7）</td><td data-page-node-id="JNxHBgGEVH4reAT4E4XtIU">NVIDIA 把设备发起通信纳入官方运行时</td></tr>
+<tr data-page-node-id="OYC7kBBCovYfHAauKcCfnC"><td data-page-node-id="kaUzwtHsM7ti8AnpyogcVR">2025.11.24</td><td data-page-node-id="01Kd6byQvJMilljBDGgZAY"><a href="https://arxiv.org/abs/2511.15076" target="_blank" data-page-node-id="pQptk21iN9eTaUgPFbJ6Fk">arXiv:2511.15076</a> GIN 论文发布</td><td data-page-node-id="KecYJjOKD0MAvg47FgLm6A">GIN 架构定型 + DeepEP 迁移验证（性能持平 NVSHMEM）</td></tr>
+<tr data-page-node-id="FAnqMHhhZ1Cec9qaklBRAh"><td data-page-node-id="Px33nmNbtizGTCOmrqB1Hw">2026.04</td><td data-page-node-id="IiyOtY4eXEp72s2R6xfyGK"><a href="https://github.com/deepseek-ai/DeepEP/pull/605" target="_blank" data-page-node-id="zKVFDV6bez7GJAFHM89CjK">DeepEP V2</a> 切换 NCCL GIN 后端</td><td data-page-node-id="mNnZK5QzGmxUjIHYcsEuDH">GIN 获得最重量级生产采纳；NVSHMEM 退役为 legacy</td></tr>
+</tbody></table></div>
+
+<h3 id="ch8-3" data-page-node-id="pzh3KavydDVjiFG6CHzE6O">8.3 常见误区澄清</h3>
+
+<div class="callout warn" data-page-node-id="CEu3r5R2oxi3nXkHUYb8VF">
+<p class="callout-title" data-page-node-id="DDcjLnRIPuCL3FuGr8BGRb">⚠️ 误区 1：“GIN 是 NCCL 的替代品/新库”</p>
+<p data-page-node-id="EZjmVuRvZtGSi7eU0cZ7Uf">错。GIN 是 NCCL 2.28 <strong data-page-node-id="JXXG9atqofu5D8jlfmcdHz">内部</strong>的 Device API 网络模式，与 NCCL 共享通信器、容错、弹性等全部基础设施。安装 NCCL 2.28.7+ 即拥有 GIN。</p>
+</div>
+<div class="callout warn" data-page-node-id="YBZEF5IPTLpDaWjMLDEWAQ">
+<p class="callout-title" data-page-node-id="911cubnKsqKnVFs9uLomrm">⚠️ 误区 2：“GIN 会让传统 AllReduce 更快”</p>
+<p data-page-node-id="IDfzODEu0TA7WYwwR0Kh1R">不直接。GIN 面向<strong data-page-node-id="HYTKiI6mkgb28728FcbPbM">细粒度、单边、kernel 内融合</strong>的新场景（MoE dispatch、编译器生成 kernel）。传统大规模集合通信仍走 NCCL 原有的主机发起流水线路径，两者并行共存、各司其职。</p>
+</div>
+<div class="callout warn" data-page-node-id="gRb7ZagDFPViw41Hvmd37Z">
+<p class="callout-title" data-page-node-id="wqU4YufbLimEMIK3w8zUC6">⚠️ 误区 3：“DeepEP V2 用的还是 NVSHMEM”</p>
+<p data-page-node-id="ySbOfDiQle0bbOq8IIETMh">过时信息。2026.04 起 DeepEP V2 已官方切换到 NCCL GIN 后端（要求 NCCL ≥ 2.30.4），NVSHMEM 仅保留给 V1 legacy 接口。</p>
+</div>
+
+<!-- ================================================================ -->
+<h2 id="ch9" data-page-node-id="XeWyb3dVTEMeBxxxZaHn1F">9. 参考资料汇总</h2>
+
+<h3 data-page-node-id="sJ6FgI1BCDc2yIi1SGVUFc">核心论文与官方文档</h3>
+<ol class="ref-list" data-page-node-id="fTsJCUKv8z8VECUbran2dP">
+<li data-page-node-id="1ZkJjRfAAhfIgLiXdE4xkT">Hamidouche, K., Bachan, J., et al. <i data-page-node-id="qF6Eo21eysi4rNa3xPqHhM">GPU-Initiated Networking for NCCL</i>. NVIDIA Corporation, arXiv:2511.15076v2, 2025. <a href="https://arxiv.org/abs/2511.15076" target="_blank" data-page-node-id="l7jhr4oAmTEDypoEH69YC3">https://arxiv.org/abs/2511.15076</a></li>
+<li data-page-node-id="933xjvf3AP6vmCkIHaFxMB">NVIDIA Developer Blog. <i data-page-node-id="VsQSNOdgVEyRT4DKMUBt1V">Fusing Communication and Compute with New Device API and Copy Engine Collectives in NVIDIA NCCL 2.28</i>, 2025-11-10. <a href="https://developer.nvidia.com/blog/fusing-communication-and-compute-with-new-device-api-and-copy-engine-collectives-in-nvidia-nccl-2-28/" target="_blank" data-page-node-id="6IcFyvluBD9vjhaJHhbYVx">developer.nvidia.com/blog/...</a></li>
+<li data-page-node-id="QoZbUUn5PCvfSN677kvgez">NVIDIA. <i data-page-node-id="0wXwABZEqupcwgZW6hbQWy">DOCA GPUNetIO Programming Guide</i>. <a href="https://docs.nvidia.com/doca/latest/doca-gpunetio/" target="_blank" data-page-node-id="jFZVKbxASsAUG3zsLfAL3J">docs.nvidia.com/doca/latest/doca-gpunetio</a></li>
+<li data-page-node-id="dZwsRDeuZJNq4HYy5qFwLr">NVIDIA. <i data-page-node-id="1sB3JeJh3U0UfSm9sXskty">NVSHMEM Documentation</i>. <a href="https://docs.nvidia.com/nvshmem/" target="_blank" data-page-node-id="zJQ5rwUt66ac7bhRBKHH1v">docs.nvidia.com/nvshmem</a></li>
+<li data-page-node-id="IW6akdXU27cX4JMKKDmbLl">NCCL 源码仓库. <a href="https://github.com/NVIDIA/nccl" target="_blank" data-page-node-id="Q8y7frvhjje9nRBvpvNCB2">github.com/NVIDIA/nccl</a></li>
+<li data-page-node-id="fujwjkRjotHMEw0BK6EOCB">DeepEP 仓库（含 V2 发布说明与 legacy 文档）. <a href="https://github.com/deepseek-ai/DeepEP" target="_blank" data-page-node-id="jMPeXHF5t7YbfDC3JyG9OP">github.com/deepseek-ai/DeepEP</a></li>
+<li data-page-node-id="IChBZRWiDP4yOIGnF2DnGj">DeepEP V2 发布 PR. <a href="https://github.com/deepseek-ai/DeepEP/pull/605" target="_blank" data-page-node-id="8SySGHMDF1CxT43LxUsIvi">github.com/deepseek-ai/DeepEP/pull/605</a></li>
+<li data-page-node-id="3RTaOm4qmzjInedRhYhW0Y">DeepSeek-AI. <i data-page-node-id="BnYPdPhyVqnijSfAYaGEwL">DeepSeek-V3 Technical Report</i>. arXiv:2412.19437, 2024. <a href="https://arxiv.org/abs/2412.19437" target="_blank" data-page-node-id="J5FBTlGTcAnCY1MH9zwrTf">https://arxiv.org/abs/2412.19437</a></li>
+</ol>
+
+<h3 data-page-node-id="i1MimpbKZpJ1afCYBGIHwF">解读文章（本文化的重要参考）</h3>
+<ol class="ref-list" data-page-node-id="r15hxOCmMqaK0NsJwXPutP">
+<li data-page-node-id="dJ07r0A1PGfHyT5ncXP0r9">CSDN（eloudy）. <i data-page-node-id="spzHDYQaQPIFMPqvrD9EON">全文 -- GPU-Initiated Networking for NCCL</i>. <a href="https://blog.csdn.net/eloudy/article/details/155099857" target="_blank" data-page-node-id="JM1gc2MTDrQnH0ZI3QHMbg">blog.csdn.net/eloudy/article/details/155099857</a></li>
+<li data-page-node-id="IWEQQnCDrT0JVmANQDJptH">知乎专栏. <i data-page-node-id="JQJ2QUlEFs1WqelRpdUQEJ">GPU-Initiated Networking for NCCL：关键技术体系与实现路径</i>. <a href="https://zhuanlan.zhihu.com/p/2038780633086957390" target="_blank" data-page-node-id="1CKd7OJQUjHcYGFpeva5KU">zhuanlan.zhihu.com/p/2038780633086957390</a></li>
+<li data-page-node-id="mak5ByeC6q4AhZx991QzN2">知乎专栏. <i data-page-node-id="C1ElOPNguLXWd0WqgYEzih">【DeepEP V2】07 - NCCL GIN Backend</i>. <a href="https://zhuanlan.zhihu.com/p/2043660020324290824" target="_blank" data-page-node-id="uEM1fuSW6nyAHTs7tbY8qe">zhuanlan.zhihu.com/p/2043660020324290824</a></li>
+<li data-page-node-id="3fRGDjWHoyt9epSfGQPR0L">PaperCache. <i data-page-node-id="rTJGDJXB2EAAoOFmClurGv">GPU-initiated networking for NCcl 论文速读</i>. <a href="https://www.papercache.org/papers/mlsys/networking/2025/11/01/gpu-initiated-networking-for-nccl" target="_blank" data-page-node-id="VFHbitIi4zM5YIZOM0RqZz">papercache.org/...</a></li>
+<li data-page-node-id="GA6nzeGNFnqOCDHmfMwG8N">DeepWiki 对 DeepEP 的自动文档（V2 架构、NCCL Gin Backend 章节）. <a href="https://deepwiki.com/deepseek-ai/DeepEP" target="_blank" data-page-node-id="oEybS2fuNAObrBjHHFCWD1">deepwiki.com/deepseek-ai/DeepEP</a></li>
+</ol>
+
+<h3 data-page-node-id="9MIiQW2hqBM02FhKxNoIsg">延伸阅读</h3>
+<ol class="ref-list" data-page-node-id="OEeDQ2TeShx3KFHopFy51q">
+<li data-page-node-id="H1gBGpXpzCvzFYNz3CPE5y">OpenSHMEM 规范（GIN 单边语义的思想源头之一）. <a href="https://openshmem.org/site/" target="_blank" data-page-node-id="zPr7UFDGaZImZv6VXi5LXk">openshmem.org</a></li>
+<li data-page-node-id="Tw97Q4DNZKJqerswztJW67">UCCL-EP: Portable Expert-Parallel Communication（异构平台上的 EP 通信，反衬 GIN/IBGDA 的可移植性问题）. arXiv:2512.19849. <a href="https://arxiv.org/abs/2512.19849" target="_blank" data-page-node-id="bWL9RHOCFb7Z5c6BolLvOY">arxiv.org/abs/2512.19849</a></li>
+<li data-page-node-id="1t7Kh25yezpIHIOPREYyP3">Perplexity pplx-kernels（另一个 GPU-initiated MoE 通信库）. <a href="https://github.com/perfectlychilled/pplx-kernels" target="_blank" data-page-node-id="lgJ4i8p48IMkLN5RyY3EJd">github.com/perfectlychilled/pplx-kernels</a></li>
+</ol>
+
+<!-- ================================================================ -->
+<h2 id="ch10">10. 补充调研和易混淆点辨析</h2>
+
+<p>本章针对前文容易引起疑问或混淆的五个技术点，结合论文原文与补充调研资料做专题辨析。每节先给结论，再展开原理级细节。</p>
+
+<!-- --------------------------------------------------------------- -->
+<h3 id="ch10-1">10.1 辨析①：RDMA 的"内核旁路"与 GIN 要消除的"CPU 参与"是不是一回事？</h3>
+
+<h4>结论</h4>
+<p><strong>您的理解方向正确，但只对了一半。</strong>RDMA 的"内核旁路（kernel bypass）"消除的是<strong>数据路径上的操作系统内核与协议栈</strong>；而 GIN 论文说的"传统主机发起 NCCL 需要 CPU 协调"指的是<strong>控制路径上的用户态 CPU 进程/线程</strong>。两者处在不同层面，互不矛盾——即使 RDMA 已经完全内核旁路，控制路径仍然可以牢牢掌握在 CPU 手里。<strong>RDMA ≠ GPU 直控网卡</strong>，这正是 GIN 要补上的那一环。</p>
+
+<h4>原理展开：一次 RDMA 传输的两条路径</h4>
+<p>任何一次网络传输都包含<strong>数据路径</strong>（payload 怎么走）和<strong>控制路径</strong>（谁下令发起、怎么知道完成）：</p>
+
+<div class="table-scroll"><table>
+<thead><tr><th>层面</th><th>传统 Socket 通信</th><th>RDMA（内核旁路后）</th><th>GIN GDAKI（设备发起后）</th></tr></thead>
+<tbody>
+<tr><td><b>数据路径</b></td><td>GPU 显存 →（拷贝）→ 主机内存 → 内核协议栈（TCP/IP 逐层封包）→ 网卡 → 网络 → 对端逆过程</td><td><b>网卡 DMA 直达 GPU 显存</b>（GPUDirect RDMA），不进内核协议栈、不经主机内存中转数据本身</td><td>同左（数据路径与 RDMA 完全一致）</td></tr>
+<tr><td><b>控制路径（谁发起）</b></td><td>CPU 用户态进程调用 socket API</td><td><b>仍是 CPU</b>：CPU 用户态进程直接调用 ibv_post_send 等 verbs，把工作请求写进网卡队列</td><td><b>GPU 线程</b>：在 CUDA kernel 内直接构造 WQE、敲网卡 doorbell，<b>CPU 全程不知情</b></td></tr>
+<tr><td><b>内核参与</b></td><td>每次收发都陷入内核（系统调用、上下文切换、协议栈处理）</td><td><b>几乎为零</b>——内存注册（ibv_reg_mr）后，数据收发不再经过内核</td><td>零（连用户态 CPU 也不参与）</td></tr>
+<tr><td><b>CPU 参与程度</b></td><td>高：数据拷贝 + 协议处理 + 控制发起</td><td>中：数据不再拷贝，但<b>每次通信仍由 CPU 发号施令</b></td><td>零：发起、推进、完成确认全部在 GPU 侧闭环</td></tr>
+</tbody></table></div>
+
+<div class="analogy">
+<p class="analogy-title">🚚 比喻：仓库直发 vs 司机自己发车</p>
+<p><strong>内核旁路（RDMA）</strong>相当于：快递公司跟仓库谈好了"直达协议"——货物（数据）从仓库（GPU 显存）直接装车运走，不再需要经过小区门卫登记、物业转运（内核协议栈）。这一步确实把"搬运工"（内核）从数据流里赶走了。</p>
+<p><strong>但派车的调度权还在调度中心（CPU）手里</strong>：每次发货，仓库管理员（GPU kernel）还是要打电话给调度中心："帮我发一车货去 3 号仓"——调度中心登记、开单、通知装车。货物虽然直达，但<strong>每一趟车都要 CPU 这位"调度员"经手</strong>。</p>
+<p><strong>GIN（设备发起）</strong>则是把车钥匙直接交给仓库管理员：他打包完货物的那一刻，自己刷单、自己发动车子、自己确认送达（signal 回执），调度中心完全下岗。</p>
+</div>
+
+<h4>回到原文的两处表述，逐一对应</h4>
+<ul>
+<li><strong>"传统主机发起 NCCL：GPU kernel 只能'下单'，网络操作必须经 CPU proxy 线程转手"</strong>——这里的"CPU proxy 线程"是 NCCL 用户态进程里的一个<strong>转发线程</strong>，不是操作系统内核。NCCL 传统路径下，GPU 通信 kernel 把通信描述符写入主机可见队列，由该 proxy 线程取走并调用网络插件（Socket/IB verbs）发给网卡。内核旁路解决的是"proxy 线程调 verbs 时不用陷内核"，但<strong>proxy 线程本身还在</strong>——CPU 仍在控制路径上。</li>
+<li><strong>"每次通信调用都伴随 kernel 启动与主机-设备同步"</strong>——这是主机发起模型的第二个代价：CUDA 执行模型规定 kernel 由 CPU 启动。就算通信数据量只有 14 KB，CPU 也得先等 GPU 算完路由（host-device 同步）、再启动下一个通信 kernel（launch 开销微秒级）。对小消息高频通信，这个固定开销占比极高。RDMA 再快也帮不上忙，因为瓶颈根本不在数据路径，而在<strong>CPU 主导的调度节拍</strong>。</li>
+</ul>
+
+<h4>那 GIN 的 Proxy 后端不也是"CPU 代理参与"吗？和传统 NCCL 有何区别？</h4>
+<p>这是最容易混淆的一组概念。区别有三层，一层比一层本质：</p>
+
+<div class="table-scroll"><table>
+<thead><tr><th>维度</th><th>传统 NCCL（主机发起集合通信）</th><th>GIN Proxy 后端（设备发起 + CPU 代发）</th><th>GIN GDAKI 后端</th></tr></thead>
+<tbody>
+<tr><td><b>通信的发起者</b></td><td>CPU：应用在主机代码里调用 ncclAllReduce 等</td><td><b>GPU</b>：kernel 内线程调用 gin.put()，只是落到后端时由 CPU 代发</td><td>GPU：直接构造 WQE 敲 doorbell</td></tr>
+<tr><td><b>通信时机由谁决定</b></td><td>CPU 调度（先算完 → 同步回来 → 再启动通信 kernel）</td><td><b>GPU 自己</b>（算出路由的同一线程立刻发起，无需回到主机）</td><td>同左</td></tr>
+<tr><td><b>每通信调用的 kernel 启动</b></td><td>需要：通信是独立 kernel，由 CPU 启动</td><td><b>不需要</b>：通信原语内嵌在计算 kernel 里，一次启动算传合一</td><td>同左</td></tr>
+<tr><td><b>host-device 同步</b></td><td>每次调用必需</td><td>不需要（同步发生在 kernel 内部，用 signal/counter）</td><td>不需要</td></tr>
+<tr><td><b>CPU 代理的角色</b></td><td>控制路径的<strong>决策者</strong>（什么时候发、发什么都由 CPU 定）</td><td>退化成纯粹的<strong>搬运工</strong>（从无锁队列取 64 字节描述符、照章执行 iput，无任何决策权）</td><td>无 CPU 角色</td></tr>
+<tr><td><b>适用场景</b></td><td>大批次规则集合通信</td><td>无 ConnectX-6 Dx+ 网卡时仍享受设备发起编程模型的兜底</td><td>生产集群极致低延迟</td></tr>
+</tbody></table></div>
+
+<p>换句话说：<strong>GIN Proxy 后端保留的是"CPU 的手"，砍掉的是"CPU 的脑"。</strong>通信决策权（何时发、发哪里、怎么同步）已完全转移到 GPU kernel 内部；CPU 代理线程只是一个被无锁队列驱动的机械执行者，换来的是对任意 RDMA 网卡/任意 CUDA 版本的可移植性。而传统 NCCL 中 CPU 是通信的组织者与决策者，GPU kernel 只是被动执行者——这才是"主机发起"与"设备发起（含 Proxy 兜底）"的分水岭。论文 Table I 中 Proxy 后端被明确归类为"CPU-assisted 的设备发起通信"，正是这个含义。</p>
+
+<div class="callout info">
+<p class="callout-title">📌 一句话记忆</p>
+<p>RDMA 内核旁路 = <b>数据路径</b>甩开内核与 CPU 拷贝；GIN = <b>控制路径</b>也甩开 CPU。传统 NCCL 的问题出在控制路径（CPU 调度 + kernel 启动节拍），所以 RDMA 救不了它；GIN Proxy 后端是"控制权在 GPU、苦力在 CPU"的折中。</p>
+</div>
+
+<!-- --------------------------------------------------------------- -->
+<h3 id="ch10-2">10.2 辨析②：GIN 的 Signal/Counter 完成同步 vs 传统 RDMA 的 CQ 轮询</h3>
+
+<h4>先看传统 RDMA 怎么做完成跟踪</h4>
+<p>传统 RDMA（verbs 编程）的完成机制是<strong>完成队列 CQ（Completion Queue）</strong> + 完成队列条目 CQE：</p>
+<ol>
+<li>发起方 CPU 调用 <code>ibv_post_send()</code> 把工作请求（WR）挂到发送队列（SQ）；</li>
+<li>网卡执行完 DMA 后，往 CQ 里写一个 CQE（含工作请求 ID、状态）；</li>
+<li>发起方 CPU 调用 <code>ibv_poll_cq()</code> 轮询 CQ，取出 CQE 才知道"这单完成了"。</li>
+</ol>
+<p>这个机制有三个特点：<strong>(a) 只报本地完成</strong>——Send/RDMA Write 的 CQE 只表示"数据已从我的内存读走/已交给网络"，不保证对端已收到且可见（RDMA Write 是 fire-and-forget 语义）；<strong>(b) 完成信息与请求解耦</strong>——CQE 靠 Work Request ID 匹配回请求，应用要自己维护映射；<strong>(c) 轮询者通常是 CPU</strong>——若要 GPU 感知，还得把 CQE 状态再搬运/通知到 GPU 可见内存。</p>
+
+<h4>GIN 的两轨完成模型与三处关键差异</h4>
+
+<div class="table-scroll"><table>
+<thead><tr><th>维度</th><th>传统 RDMA（verbs CQ）</th><th>NCCL GIN</th></tr></thead>
+<tbody>
+<tr><td><b>本地完成（源缓冲可复用）</b></td><td>CQ/CQE 轮询，靠 WR ID 匹配</td><td><b>Counter</b>：每操作可指定 counterID，完成后计数 +1；<code>waitCounter(id, 期望值)</code> 直接描述流水线</td></tr>
+<tr><td><b>远程完成（对端已收到且可见）</b></td><td>原生不提供；需自建附加机制（对端再回一个 RDMA Write/带 imm 的 Send 通知你）</td><td><b>Signal 一等公民</b>：<code>put(..., SignalInc{id})</code> 完成时保证此前同上下文同 peer 的所有 put 均已远程可见</td></tr>
+<tr><td><b>同步对象的寻址</b></td><td>内存地址（CQE 缓冲、自建通知变量都在内存里）</td><td><b>整数 ID</b>：signal/counter 用 ID 编号，不占应用数据地址空间</td></tr>
+<tr><td><b>等待的执行者</b></td><td>CPU 轮询（GPU 侧需额外桥接）</td><td>GPU 线程在 kernel 内直接 <code>waitSignal/waitCounter</code>（GDAKI 下硬件 signal 表就在 GPU 内存，轮询零跨越）</td></tr>
+<tr><td><b>排序保证</b></td><td>同一 QP 内按序，跨 QP 无保证；语义易踩坑</td><td>显式契约：默认无序 + "signal 完成 ⟹ 此前 put 远程可见"的轻量 release-acquire</td></tr>
+</tbody></table></div>
+
+<h4>Signal（远程完成）如何让发送端感知？</h4>
+<p>这是理解 GIN 同步设计的核心。完整链路分四步：</p>
+<ol>
+<li><strong>发送端注入"回执要求"</strong>：GPU 线程发出批量 put 后，追加一个 signal 操作（独立 <code>gin.signal(peer, id)</code>，或挂在最后一个 put 上 <code>ncclGin_SignalInc{id}</code>）。由 GIN 的排序语义，这个 signal 会等此前同上下文同 peer 的所有 put 都在对端落地后才生效。</li>
+<li><strong>接收端 signal 是"对称对象"</strong>：所有 rank 在初始化时集体注册了一组 signal（每个都有全局约定的整数 ID）。signal 的语义是"<strong>远端对等体上 ID=n 的信号计数 +1</strong>"——即发送端的 signal 调用实际效果是<strong>原子递增接收端 GPU 内存中的计数器</strong>。GDAKI 后端下这由网卡硬件直接写 GPU 内存中的 signal 表完成（IBGDA 硬件写语义）；Proxy 后端下由 CPU 代理调用 iput_signal 实现。</li>
+<li><strong>接收端消费 signal</strong>：接收端 GPU 线程用 <code>readSignal(id)</code> 轮询（或 <code>waitSignal(coop, id, 期望值)</code> 阻塞等待）。看到计数到达期望值，即确认"ID=n 对应的那批数据已完整到达且对我可见"——注意这<strong>天然携带了 release-acquire 语义</strong>：先见数据、后见信号，不会读到半成品。</li>
+<li><strong>发送端如何知道"对方已收到"？</strong>——分两种情况：
+  <ul>
+  <li><b>多数场景（如 dispatch 发 token）发送端不需要知道</b>：发送端关心的是"数据已安全离开、源缓冲可以覆盖写"——这用本地 Counter/flush 跟踪即可。远程 signal 是发给接收端看的，接收端据此开始计算（进专家 GEMM）。</li>
+  <li><b>需要双向确认的场景（如 combine 归约、流控）</b>：接收端处理完后<strong>反向再发一个 signal 回来</strong>（零字节 put + SignalAdd），发送端 waitSignal 等这个"回执"。论文 §IV-E 中 LL combine 的 flag 信号、DeepEP V1 的 head/tail 指针流控，都是这个模式：数据 put → 计数 signal 通知对端 → 对端处理 → 反向 signal/head 更新 → 发送端据此推进或复用缓冲。</li>
+  </ul></li>
+</ol>
+
+<h4>Signal 到达会触发发送端什么后续操作？（典型四种）</h4>
+<ol>
+<li><strong>缓冲区复用/环形缓冲推进</strong>：等"反向回执"确认对端已消费完某槽位数据后，发送端才安全覆写该槽位（HT 内核的 tail signal → head 指针推进循环流控）；</li>
+<li><strong>流水线下一 stage 启动</strong>：counter 达到期望值（本地完成）或 signal 达到（远端确认），kernel 内 if/while 判断通过，立即启动下一批 token 的量化+发送，实现发送-计算在 kernel 内交替重叠；</li>
+<li><strong>进入计算阶段</strong>：如 LL 内核中接收 warp 等 per-expert signal 到齐后，直接触发 TMA load 与专家 GEMM；</li>
+<li><strong>屏障/轮次推进</strong>：ncclGinBarrierSession 基于 signal 聚合实现跨 rank 屏障，全部回执到齐后 kernel 才进入下一通信轮（DeepEP V2 的 Gin Barrier ~5-10 µs 即此机制）。</li>
+</ol>
+
+<div class="callout info">
+<p class="callout-title">📌 一句话记忆</p>
+<p>传统 RDMA 的 CQ 只告诉 <b>CPU"货发出去了"</b>；GIN 的 signal 直接告诉 <b>GPU"货已放到对方货架"</b>，counter 告诉 <b>GPU"我的货箱可以回收了"</b>——两个视角、整数 ID、kernel 内闭环等待，这就是与 CQ 轮询的本质区别。</p>
+</div>
+
+<!-- --------------------------------------------------------------- -->
+<h3 id="ch10-3">10.3 辨析③：NVSHMEM/IBGDA 工具链的背景、维护者，以及 GIN 内化它的收益</h3>
+
+<h4>NVSHMEM/IBGDA 是什么背景？由谁维护？</h4>
+<ul>
+<li><strong>学术血统</strong>：NVSHMEM 源自 OpenSHMEM/PGAS 社区与 NVIDIA 的长期合作，其 GPU-initiated 通信的学术基础包括俄亥俄州立大学等团队关于 GPU-NIC 内存一致性的系列研究（GPUrdma、GIO、GPU-Centric Communication 等，Hamidouche 等人是核心贡献者——<strong>注意：这位 Hamidouche 正是 GIN 论文的第一作者</strong>，研究领域一脉相承）。</li>
+<li><strong>产品化与维护</strong>：NVSHMEM 是 <strong>NVIDIA 官方维护</strong>的 OpenSHMEM 规范在 CUDA 设备上的实现（PGAS 库，对称堆 + 设备侧 put/get/原子操作），随 CUDA 生态发布。IBGDA（InfiniBand GPUDirect Async）传输层自 <strong>NVSHMEM 2.7.0</strong> 引入，让 GPU 绕过 CPU 直接操作网卡；其产品化形态即 DOCA GPUNetIO（GIN GDAKI 后端的直接地基）。</li>
+<li><strong>DeepSeek 的改造</strong>：DeepEP V1 并未直接用官方 NVSHMEM，而是 fork 了一份<strong>修改版 NVSHMEM</strong>（third-party 目录自行维护），叠加自身 kernel——这意味着 DeepSeek 要自己背起"通信库底层 fork 维护"的长期成本。</li>
+</ul>
+
+<h4>为什么 GIN 要把这套能力内化进 NCCL？收益是什么？</h4>
+<ol>
+<li><strong>消除"双运行时"部署负担（最直接的动机）</strong>。GIN 论文反复强调：NVSHMEM 是独立运行时，与 NCCL 生态割裂。生产集群上跑 MoE，既要 NCCL（做 AllReduce 等）又要 NVSHMEM/DeepEP（做 dispatch），两套库各有自己的内存注册、拓扑探测、环境变量、调优参数、版本兼容矩阵。内化后单一 NCCL 满足全部需求，运维复杂度直接减半。</li>
+<li><strong>复用 NCCL 的生产级基础设施</strong>。分层通信器（TP/PP/EP 多维并行共用）、容错与弹性训练、拓扑感知优化——这些 NCCL 沉淀多年的能力，NVSHMEM 体系要么没有、要么要另外造。GIN 让设备发起通信直接继承这套家底（论文 §VII 将此列为与性能同级别的核心价值）。</li>
+<li><strong>语义与生态标准化</strong>。GIN 把 NVSHMEM 的"指针寻址 + 内存原子"模型改造为"窗口寻址 + ID 化 signal"（见 10.2），并统一在 Device API 三模式（LSA/Multimem/GIN）之下——上层框架（PyTorch/TRT-LLM/vLLM/SGLang）面对的是一套原语体系，而非每库一套方言。对 NVIDIA 而言，这也是把 DeepEP 这类关键工作负载收拢回官方技术路线的战略举措。</li>
+<li><strong>性能不损失（前提条件成立）</strong>。论文用 DeepEP 迁移证明：GIN GDAKI 小消息 16.7 µs（NVSHMEM IBGDA 24.3 µs），HT/LL 全场景差异 1–2%，部分场景反超 9%——内化没有性能代价，收益是净赚的。</li>
+<li><strong>对 DeepSeek 的直接收益</strong>：不再维护 NVSHMEM fork，NCCL 官方版本（≥2.30.4）即插即用；DeepEP V2 得以做 Fully JIT、复用已有 NCCL communicator，安装从"编译 CUDA 扩展"简化为"装个 NCCL 包"。</li>
+</ol>
+
+<div class="callout warn">
+<p class="callout-title">⚠️ 注意：内化 ≠ 吞并</p>
+<p>NVSHMEM 仍在独立演进（当前 3.x 版本线），服务于 OpenSHMEM/PGAS 传统 HPC 用户与 Kokkos、PETSc 等生态。GIN 内化的是其在 AI/MoE 场景的关键能力（设备发起 RDMA + 单边语义），面向的是 NCCL 用户群；两者长期并行，只是 AI 训练/推理这条赛道上的新项目有了"官方统一"的选择。</p>
+</div>
+
+<!-- --------------------------------------------------------------- -->
+<h3 id="ch10-4">10.4 辨析④：DeepEP V2 为何能把 SM 从 24 降到 4–6？0 SM 特性原理是什么？</h3>
+
+<h4>先明确"SM 占用"为什么是代价</h4>
+<p>DeepEP 的通信 kernel 要占用 GPU 的流式多处理器（SM）来执行打包、发起 RDMA、轮询 signal、转发 NVLink 数据等工作。被通信占用的 SM 不能同时跑专家 GEMM 计算——H100 有 132 个 SM，V1 高吞吐模式占 24 个（约 18%），意味着 MoE 层计算期间近 1/5 算力被通信"偷走"。所以 V2 的核心工程目标就是：<strong>让更少的 SM 干完同样的通信活，把省下的 SM 还给计算</strong>。</p>
+
+<h4>SM 24 → 4–6 的四个技术来源</h4>
+<ol>
+<li><strong>NCCL GIN 后端接管底层脏活</strong>。V1 时代 DeepEP 自己 fork NVSHMEM、自己管理 QP/内存注册/代理细节；V2 把这些下沉给 NCCL GIN（窗口注册、上下文管理、signal 基础设施全部现成），DeepEP kernel 只保留"业务逻辑"，代码路径更短、每个 SM 的通信效率更高。</li>
+<li><strong>解析式资源计算替代保守铺量</strong>。V1 靠 auto-tuning 找配置，倾向多配 SM 保吞吐；V2 根据拓扑（scale-up/scale-out 域大小）、token 数、专家数<strong>用公式精确推导</strong>出所需 SM 数与 QP 数——不多不少。官方性能表即体现此逻辑：EP 8×2 配 12 SM、EP 8×4 只需 6 SM（域更大、每 SM 分摊的 QP 并行需求更少）。</li>
+<li><strong>JIT 模板特化消除冗余路径</strong>。Fully JIT（NVRTC 运行时编译）把 kNumSMs、kNumQPs、kNumExperts、kHidden 等全部固化为编译期常量，循环边界、展开程度、寄存器分配都按当次配置最优——相比 V1 通用 kernel，同样数据量用更少迭代轮次和更少线程就能打满带宽。</li>
+<li><strong>硬件引擎替代 SM 搬运（Hopper/Blackwell 特性）</strong>。V2 kernel 大量使用 <strong>TMA（Tensor Memory Accelerator）</strong>做 bulk 数据搬运：LDG/STG 逐线程拷贝改为 TMA 异步批量传输，一个 warp 发起、硬件 DMA 完成，NVLink 域内转发（hybrid 模式的 Forward 角色）与 shared memory 装载几乎不烧 SM 算力——这正是"warp 角色 + TMA"架构（Notify/Scaleout/Forward 分工）的直接收益。带宽瓶颈本来就在网卡/NVLink 而非 SM 数量，把搬运交给专用引擎后，少量 SM 只需"指挥"即可。</li>
+</ol>
+<p>一句话：<strong>V1 用 24 个 SM 既当"指挥员"又当"搬运工"；V2 用 TMA/GIN 把搬运交给专用硬件，4–6 个 SM 只留指挥职能</strong>——通信量没变，但打满网卡带宽所需的 SM 数大幅下降（官方数据：性能持平或 +30% 峰值的同时省 4× SM）。</p>
+
+<h4>实验性 0 SM 特性的技术原理</h4>
+<p>"0 SM"指<strong>通信完全不占用任何 SM</strong>，由 GPU 上的专用硬件引擎执行。三条路线各自利用不同的引擎：</p>
+<div class="table-scroll"><table>
+<thead><tr><th>特性</th><th>用的引擎</th><th>原理</th><th>典型场景</th></tr></thead>
+<tbody>
+<tr><td><b>0 SM Engram</b></td><td>RDMA 引擎（网卡）</td><td>远程内存访问原语：目标地址由 GPU 侧预先编排成 RDMA 描述符，由网卡 DMA 引擎直接在 GPU 显存 ⇄ 远端内存间搬运，SM 零参与</td><td>跨节点 KV-cache/权重读取（EP 不均衡时借远端显存）</td></tr>
+<tr><td><b>0 SM PP</b></td><td>RDMA 引擎（网卡）</td><td>流水线并行的 activation 转发：micro-batch 激活值按预设路由整块 RDMA 直传下一 stage，无需 kernel 逐 token 处理</td><td>大模型 PP 训练/推理的层间激活传输</td></tr>
+<tr><td><b>0 SM CP</b></td><td><b>Copy Engine（CE）</b></td><td>上下文并行的 AllGather：用 SM 之外的拷贝引擎（CUDA Async Copy / NCCL 2.28 的 CE collectives，走对称内存窗口）完成集合通信，SM 全留给 attention 计算</td><td>长序列 CP 的 hidden states 聚合</td></tr>
+</tbody></table></div>
+
+<p>三者的共同原理是：<strong>把"数据从 A 搬到 B"这件事从通用计算单元（SM）迁移到本来就为搬运而生的专用单元（网卡 DMA / Copy Engine）</strong>。这延续了 NVIDIA 的整体技术方向——NCCL 2.28 同期推出的 CE collectives（AllGather/AllToAll 零 SM 化）走的是同一条路。代价与限制：0 SM 路线只能处理<strong>地址可预先确定、模式规则</strong>的传输（所以适合 Engram/PP/CP，而 token 路由动态多变的 EP 主路径仍需少量 SM）；0 SM 纯 RDMA 低延迟 EP 已不再支持；且均为实验性特性。</p>
+
+<!-- --------------------------------------------------------------- -->
+<h3 id="ch10-5">10.5 辨析⑤：HT 与 LL 两套通信规划详解，以及 V2 为什么敢"API 合一"？</h3>
+
+<h4>Normal/HT（高吞吐）内核的通信事件规划</h4>
+<p>场景：训练/prefill，每 rank 4096+ tokens，通信总数据量大，<strong>优化目标是吞吐（带宽打满）</strong>，单次延迟相对不敏感。规划要点：</p>
+<ol>
+<li><strong>分层转发压缩 RDMA 流量（核心思想）</strong>：NVLink 域内 900 GB/s，RDMA 跨节点仅 ~50 GB/s/卡，两者相差近 20 倍。若 8 张卡各自直接向远端 8 张卡发 RDMA，会产生 64 条细流；HT 模式改为：<strong>本节点 8 卡先在 NVLink 域内把发往同一远端节点的 token 汇聚到负责的卡上，再由该卡用一条满带宽 RDMA 链路发给对端节点，对端收到后再经 NVLink 分发到专家所在卡</strong>。RDMA 链路数从 O(GPU²) 降到 O(节点²)，每条链路更容易打满，珍贵的跨节点带宽总量最小化。</li>
+<li><strong>通信事件序列</strong>（论文 §IV-D）：notify 阶段（coordinator SM flush + barrier + 交换路由元数据）→ dispatch 主阶段（奇数 SM 当 Sender 发 RDMA / NVLink Receiver，偶数 SM 当 Forwarder 收 RDMA 后 NVLink 转发，双向并发）→ head/tail 循环缓冲流控（tail signal 通知对端"我写到哪了"，head signal 让对端确认"我读到哪了"，防止覆写未消费数据）。</li>
+<li><strong>代价</strong>：多级转发增加跳数与同步点，小批次下延迟开销占比高——所以只适合大批次。</li>
+</ol>
+
+<h4>LL（低延迟）内核的通信事件规划</h4>
+<p>场景：decode，每 rank 仅 1–128 tokens，<strong>优化目标是端到端延迟（每一层 dispatch+combine 都在关键路径上）</strong>。规划要点：</p>
+<ol>
+<li><strong>全互联 RDMA mesh 点对点直达</strong>：每对 (源 rank, 目标专家) 预分配专用 buffer 与专用 signal，token 算出路由后<strong>一步直达</strong>专家所在 GPU——不经 NVLink 二级转发、不做 token 汇聚。宁可浪费一些带宽（链路多而细），也要砍掉一切中转跳数与同步点。</li>
+<li><strong>免 notify 的流式元数据</strong>：路由元数据（token 来源索引，16 字节）<strong>随数据一起发</strong>（14336B 数据 + 16B 元数据 = 14352B 消息），省掉独立的通知阶段；计数 warp 发完数据后用零字节 put + SignalAdd 告知对端 token 数（release-acquire：计数到达即数据全部可见）。</li>
+<li><strong>通信-计算融合</strong>：发送侧 FP8 量化与发送在同一 kernel 内流水；接收侧 warp 等 per-expert signal 到齐直接进 TMA load + GEMM。V1 还配合 hook 机制让通信与上/下游 kernel 重叠。</li>
+<li><strong>代价</strong>：QPs 数量 ∝ 专家数（8–16），专用 buffer 占显存（V1 低延迟 buffer 按 num_qps_per_rank = 本地专家数预分配）——用资源换延迟。</li>
+</ol>
+
+<h4>两模式对照</h4>
+<div class="table-scroll"><table>
+<thead><tr><th>维度</th><th>Normal/HT（V1）</th><th>Low-Latency（V1）</th></tr></thead>
+<tbody>
+<tr><td>优化目标</td><td>带宽/吞吐</td><td>延迟</td></tr>
+<tr><td>跨节点路径</td><td>NVLink 汇聚 → RDMA 干线 → NVLink 分发（分层）</td><td>RDMA mesh 点对点直达</td></tr>
+<tr><td>消息粒度</td><td>大批量聚合传输</td><td>单 token 级（~14 KB）</td></tr>
+<tr><td>元数据</td><td>独立 notify 阶段交换</td><td>随数据内嵌 + 零字节 signal 计数</td></tr>
+<tr><td>同步</td><td>head/tail 循环流控 + barrier</td><td>per-expert signal 直接握手</td></tr>
+<tr><td>资源开销</td><td>24 SM、24 QP</td><td>8–16 QP、大预分配 buffer、（原 0 SM hook 模式）</td></tr>
+</tbody></table></div>
+
+<h4>V2 为什么敢把两套 API 合一？是因为不再区分场景了吗？</h4>
+<p><strong>不是。场景的差异（吞吐 vs 延迟、聚合 vs 直达）是物理规律，永远存在。V2 合掉的是"API 与实现层面的两套体系"，而不是"两种通信策略"。</strong>具体说：</p>
+<ol>
+<li><strong>两种通信策略以"模式"形式保留</strong>：V2 的 ElasticBuffer 统一接口下依然有 <strong>hybrid 模式</strong>（对应原高吞吐思路：NVLink 域内 Forward + RDMA 跨域的分层转发，hybrid_dispatch_impl/hybrid_combine_impl）与 <strong>direct 模式</strong>（对应原低延迟思路：RDMA 直达，dispatch_impl/combine_impl），官方明确"Both hybrid &amp; direct modes remain supported"。选哪个由部署形态决定（是否有 NVLink 域、批量大小），而不是两套 API 二选一。</li>
+<li><strong>为什么能合</strong>——两个前提在 V2 成立了：
+  <ul>
+    <li><b>底层原语统一</b>：V1 两种内核分别深度绑定 NVSHMEM 的不同用法（HT 用 put_nbi+quiet+barrier，LL 用 per-expert buffer+内存原子+IBGDA 直发），实现机制差异大到值得两套 API。V2 里两者都构建在同一套 NCCL GIN 原语（window/signal/counter）与同一 JIT kernel 框架（同源的 dispatch/combine 模板，hybrid 只是多一组 Forward warp 与 TMA 路径）之上，差异收敛为模板参数与 warp 角色配置——自然可以暴露成一个接口的不同模式。</li>
+    <li><b>参数推导自动化</b>：解析式 SM/QP 计算让接口能根据（域大小、token 数、专家数）自动给出两种模式各自的资源配置，用户不必再像 V1 那样理解两套 buffer 构造函数与配置 hint（get_dispatch_config vs get_low_latency_rdma_size_hint）。</li>
+  </ul></li>
+<li><strong>合一的实际收益</strong>：训练与推理（prefill 与 decode）可在同一个 ElasticBuffer 上无缝切换/共存，框架集成（vLLM/SGLang 的 prefill-decode 混合调度）不再需要维护两套 buffer 生命周期；新增的 GEMM 布局选项（do_expand、expert_alignment）对两种模式统一生效。</li>
+<li><strong>注意合一是"用户接口"层面</strong>：V2 放弃的是"0 SM 纯 RDMA 低延迟"这一极端变体（0 SM RDMA low-latency EP no longer supported）——低延迟需求由 direct 模式承接，代价是低延迟路径回到了占用少量 SM 的实现。这是工程取舍：用一个可维护的 kernel 家族覆盖 95% 场景，好过维护一个极端优化但难以演进的特化路径。</li>
+</ol>
+
+<div class="callout info">
+<p class="callout-title">📌 一句话记忆</p>
+<p>HT 与 LL 的区别是<b>策略层</b>的（聚合转发省带宽 vs 点对点直达省延迟），永远不会消失；V2 合的是<b>接口与实现层</b>——两套策略都跑在同一套 GIN 原语 + JIT kernel 底座上，于是暴露为一个 ElasticBuffer 的 hybrid/direct 两个模式。用户面对一个 API，底层策略自动（或显式）选择。</p>
+</div>
+
+<h4 style="margin-top:36px">本章补充参考</h4>
+<ol class="ref-list">
+<li>Markthub, P., Howell, J. 等 NVSHMEM IBGDA 相关工作（GPU-NIC 细粒度传输的 proxy 瓶颈实证）. 转引自 <i>The Landscape of GPU-Centric Communication</i>, ACM Computing Surveys. <a href="https://arxiv.org/abs/2409.09874" target="_blank">arxiv.org/abs/2409.09874</a></li>
+<li>NVIDIA. <i>The Landscape of GPU-Centric Communication</i> §4.3（NVSHMEM/IBGDA 谱系、2.7.0 引入 IBGDA、proxy 瓶颈与一致性约束）. <a href="https://ar5iv.arxiv.org/html/2409.09874" target="_blank">ar5iv.arxiv.org/html/2409.09874</a></li>
+<li>DeepWiki. <i>DeepEP: Elastic Kernels (V2)</i>（warp 角色 Notify/Scaleout/Forward、TMA、模板参数、hybrid_dispatch 流程）. <a href="https://deepwiki.com/deepseek-ai/DeepEP/5.1-layout-calculation" target="_blank">deepwiki.com/deepseek-ai/DeepEP</a></li>
+<li>DeepSeek-AI. DeepEP V2 发布说明与 README（0 SM 特性、解析式资源计算、hybrid/direct 模式、性能表）. <a href="https://github.com/deepseek-ai/DeepEP" target="_blank">github.com/deepseek-ai/DeepEP</a> · <a href="https://github.com/deepseek-ai/DeepEP/pull/605" target="_blank">PR #605</a></li>
+<li>NVIDIA. NCCL 2.28 技术博客（CE collectives 零 SM 集合通信，0 SM CP 的同源技术）. <a href="https://developer.nvidia.com/blog/fusing-communication-and-compute-with-new-device-api-and-copy-engine-collectives-in-nvidia-nccl-2-28/" target="_blank">developer.nvidia.com/blog</a></li>
+</ol>
+
+<p class="dim center" style="margin-top:60px" data-page-node-id="EmY72MzE5N4yupZzm6tqMc">— 全文完 · 基于 arXiv:2511.15076v2 及上述公开资料整理，图表注明出处，未经注明的示意图为自绘 —</p>
+
+
+</main>
+</div>
+
+<script>
+// 侧边栏目录滚动高亮
+(function() {
+  var links = document.querySelectorAll('.toc a');
+  var map = {};
+  links.forEach(function(a){ map[a.getAttribute('href').slice(1)] = a; });
+  var sections = [];
+  Object.keys(map).forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) sections.push({el: el, link: map[id]});
+  });
+  function onScroll() {
+    var pos = window.scrollY + 100;
+    var current = null;
+    sections.forEach(function(s){
+      if (s.el.offsetTop <= pos) current = s;
+    });
+    links.forEach(function(a){ a.classList.remove('active'); });
+    if (current) current.link.classList.add('active');
+  }
+  window.addEventListener('scroll', onScroll, {passive: true});
+  onScroll();
+})();
+</script>
+
+
+</body></html>
